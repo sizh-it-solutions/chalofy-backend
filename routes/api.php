@@ -1,0 +1,237 @@
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Api\V1\Admin\{SliderApiController};
+
+
+// paypal
+Route::post('/paypal/ipn', 'App\Http\Controllers\Front\PaymentFrontController@handlePaypalIPN')->name('paypal.ipn');
+Route::post('/paypal/webhook', 'App\Strategies\PaypalStrategy@handleWebhook')->name('paypal.webhook');
+
+
+
+Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin', 'middleware' => []], function () {
+  // Slider
+  Route::post('/sliders', [SliderApiController::class, 'sliders']);
+
+  // App Users
+
+
+
+  Route::post('/userRegister', 'AppUsersApiController@userRegister');
+  Route::post('/otpVerification', 'AppUsersApiController@otpVerification');
+  Route::post('/userLogin', 'AppUsersApiController@userLogin');
+  Route::post('/userLogout', 'AppUsersApiController@userLogout');
+  Route::post('/puthostRequest', 'AppUsersApiController@puthostRequest');
+  Route::get('/gethostStatus', 'AppUsersApiController@gethostStatus');
+  Route::post('/socialLogin', 'AppUsersApiController@socialLogin');
+  Route::post('/userEmailLogin', 'AppUsersApiController@userEmailLogin');
+  Route::get('/forgotPassword', 'AppUsersApiController@forgotPassword');
+  Route::get('/verifyResetToken', 'AppUsersApiController@verifyResetToken');
+  Route::post('/ResendTokenEmailChange', 'AppUsersApiController@ResendTokenEmailChange');
+
+  //Mobile Login
+  Route::post('/sendMobileLoginOtp', 'AppUsersApiController@sendMobileLoginOtp');
+  Route::post('/userMobileLogin', 'AppUsersApiController@userMobileLogin');
+
+  Route::post('/resetPassword', 'AppUsersApiController@resetPassword');
+  Route::post('/emailcheck', 'AppUsersApiController@emailcheck');
+  Route::post('/mobilecheck', 'AppUsersApiController@mobilecheck');
+  Route::get('/ResendOtp ', 'AppUsersApiController@ResendOtp');
+  Route::get('/ResendToken ', 'AppUsersApiController@ResendToken');
+  Route::post('/updatePassword ', 'AppUsersApiController@updatePassword');
+  Route::get('/getUserWallet ', 'AppUsersApiController@getUserWallet');
+  Route::get('/getUserWalletTransactions ', 'AppUsersApiController@getUserWalletTransactions');
+
+  Route::get('/getVendorWallet ', 'AppUsersApiController@getVendorWallet');
+  Route::get('/getVendorWalletTransactions ', 'AppUsersApiController@getVendorWalletTransactions');
+  Route::post('/insertPayout ', 'AppUsersApiController@insertPayout');
+  Route::get('/getPayoutTransactions ', 'AppUsersApiController@getPayoutTransactions');
+
+
+  Route::post('/deleteAccount ', 'AppUsersApiController@deleteAccount');
+  Route::post('/saveDoorStepAddress', 'AppUsersApiController@saveDoorStepAddress');
+  Route::get('/getDoorStepAddress', 'AppUsersApiController@getDoorStepAddress');
+  // UserProfile
+  Route::get('/getUserProfile ', 'UserProfileController@getUserProfile');
+  Route::get('/getUseritems ', 'UserProfileController@getUseritems');
+  Route::get('/getVendorItemReviews ', 'UserProfileController@getVendorItemReviews');
+
+
+
+  // Cities
+  Route::get('/yourLocations', 'CitiesApiController@yourLocations');
+  Route::post('/searchCities', 'CitiesApiController@searchCities');
+
+  // Item Type
+
+
+  Route::get('/getAllCategories', 'ItemTypeApiController@getAllCategories');
+  Route::post('/getItemsByItemType', 'ItemTypeApiController@getItemsByItemType');
+
+  // features
+  Route::get('/amenities', 'FeaturesApiController@features');
+  // HomeData
+  Route::get('/homeData', 'HomeApiController@homeData');
+
+
+
+  // Items
+  Route::post('/featuredItems', 'HomeApiController@featuredItems');
+  Route::post('/mostViewedItems', 'HomeApiController@mostViewedItems');
+  Route::post('/nearbyItems', 'HomeApiController@nearbyItems');
+  Route::post('/newArrivalItems', 'HomeApiController@newArrivalItems');
+
+
+  Route::post('/getItemDetails', 'ItemsApiController@getItemDetails');
+  Route::post('/insertItem', 'ItemsApiController@insertItem');
+  Route::post('/editItem', 'ItemsApiController@editItem');
+  Route::get('/myItems', 'ItemsApiController@myItems');
+  Route::post('/deletefrontimage', 'ItemsApiController@deletefrontimage');
+  Route::post('/deletegalleryimage', 'ItemsApiController@deletegalleryimage');
+
+  Route::post('/getItemsByLocation', 'ItemsApiController@getItemsByLocation');
+  Route::post('/itemSearch', 'ItemsApiController@itemSearch');
+  Route::post('/deleteItem', 'ItemsApiController@deleteItem');
+  Route::post('/getCurrentAndFuturePrices', 'ItemsApiController@getCurrentAndFuturePrices');
+  Route::post('/getHomeData', 'ItemsApiController@getHomeData');
+
+
+
+  Route::post('/addEditItemImage', 'ItemsApiController@addEditItemImage');
+
+  //Calender
+  Route::get('/getItemDates', 'ItemDateController@getItemDates');
+  Route::post('/addEditCalender', 'ItemDateController@addEditCalender');
+
+
+
+  //Support Ticket
+
+
+  Route::post('/createSupportTicket', 'SupportTicketController@createSupportTicket');
+  Route::post('/replyToSupportTicket', 'SupportTicketController@replyToSupportTicket');
+  Route::get('/getUserThreads', 'SupportTicketController@getUserThreads');
+  Route::get('/getReplyThreads', 'SupportTicketController@getReplyThreads');
+  Route::post('/closeSupportTicket', 'SupportTicketController@closeSupportTicket');
+
+  // Item Rules
+  Route::get('/getItemRules', 'RentalItemRuleApiController@getItemRules');
+
+  // Item Rules
+  Route::get('/getMakes', 'MakeApiController@getMakes');
+  Route::get('/getMakesModel', 'MakeApiController@getMakesModel');
+
+  // Cancellations rasons 
+  Route::get('/getCancelReasons', 'CancellationReasonController@getCancelReasons');
+  Route::get('/getCancellationPolicies', 'BookingApiController@getCancellationPolicies');
+
+  // Review
+  Route::post('/getItemReviews', 'ReviewApiController@getItemReviews');
+  Route::post('/giveReviewByUser', 'ReviewApiController@giveReviewByUser');
+  Route::post('/giveReviewByHost', 'ReviewApiController@giveReviewByHost');
+
+  // Booking
+  Route::post('/checkBookingAvailability', 'BookingApiController@checkBookingAvailability');
+  Route::post('/getItemPrices', 'BookingApiController@getItemPrices');
+  Route::post('/bookItem', 'BookingApiController@bookItem'); // Need to change
+  Route::get('/bookingRecord', 'BookingApiController@bookingRecord');
+  Route::post('/itemBookingDate', 'BookingApiController@itemBookingDate'); // Need to change
+  Route::post('/bookingpaymentsuccess', 'BookingApiController@bookingpaymentsuccess');
+  Route::get('/vendorbookingRecord', 'BookingApiController@vendorbookingRecord');
+  Route::post('/cancelBookingByUser', 'BookingApiController@cancelBookingByUser');
+  Route::post('/cancelBookingByHost', 'BookingApiController@cancelBookingByHost');
+  Route::post('/confirmBookingByHost', 'BookingApiController@confirmBookingByHost');
+  Route::post('/updateItemDeliveredStatus', 'BookingApiController@updateItemDeliveredStatus');
+  Route::post('/updateItemReceivedStatus', 'BookingApiController@updateItemReceivedStatus');
+  Route::post('/updateItemReturnedStatus', 'BookingApiController@updateItemReturnedStatus');
+  //https://domainname.com/api/v1/distribureVendorCommission
+  //https://domainname.com/api/v1/removeUnpaidBookings
+  //https://domainname.com/api/v1/removeItemsOlderThanXDays
+
+  Route::get('/distributeVendorCommission', 'BookingApiController@distributeVendorCommission'); // set in cron JOB
+  Route::get('/removeUnpaidBookings', 'BookingApiController@removeUnpaidBookings'); // set in cron JOB
+  Route::get('/removeItemsOlderThanXDays', 'BookingApiController@removeItemsOlderThanXDays'); // set in cron JOB
+  Route::get('/updateDatabase', 'BookingApiController@updateDatabase');
+
+
+  Route::post('/getCategories', 'CategoryApiController@getCategories');
+  Route::post('/getSubcategories', 'CategoryApiController@getSubcategories');
+  Route::post('/getCategoriesData', 'CategoryApiController@getCategoriesData');
+
+
+
+  // Testimonial
+  Route::post('testimonials/media', 'TestimonialApiController@storeMedia')->name('testimonials.storeMedia');
+  Route::apiResource('testimonials', 'TestimonialApiController');
+
+  // Requires an middlewere 
+
+  Route::post('/addToWishlist', 'ItemWishlistController@addToWishlist');
+  Route::get('/removeFromWishlist', 'ItemWishlistController@removeFromWishlist');
+  Route::get('/getWishlist', 'ItemWishlistController@getWishlist');
+
+  Route::post('/editProfile', 'MyAccountController@editProfile');
+  Route::post('/uploadProfileImage', 'MyAccountController@uploadProfileImage');
+  Route::post('/checkMobileNumber', 'MyAccountController@checkMobileNumber');
+  Route::post('/changeMobileNumber', 'MyAccountController@changeMobileNumber');
+  Route::post('/checkEmail', 'MyAccountController@checkEmail');
+  Route::post('/changeEmail', 'MyAccountController@changeEmail');
+  Route::post('/insertBankAccount', 'MyAccountController@insertBankAccount');
+  Route::post('/getBankAccount', 'MyAccountController@getBankAccount');
+  Route::get('/getUserDashboardStats', 'MyAccountController@getUserDashboardStats');
+  Route::post('/toggle-product-status', 'MyAccountController@toggleProductStatus');
+
+
+
+  // Static Pages
+  Route::post('static-pages/media', 'StaticPagesApiController@storeMedia')->name('static-pages.storeMedia');
+  Route::apiResource('static-pages', 'StaticPagesApiController');
+  Route::get('StaticPage', 'StaticPagesApiController@StaticPage');
+
+  // All Packages
+  Route::post('all-packages/media', 'AllPackagesApiController@storeMedia')->name('all-packages.storeMedia');
+  Route::apiResource('all-packages', 'AllPackagesApiController', ['except' => ['destroy']]);
+
+  // General Setting
+  Route::apiResource('general-settings', 'GeneralSettingApiController', ['except' => ['store', 'show', 'destroy']]);
+  Route::get('getgeneralSettings', 'GeneralSettingApiController@getgeneralSettings');
+
+  // Add Coupons
+  Route::post('add-coupons/media', 'AddCouponsApiController@storeMedia')->name('add-coupons.storeMedia');
+  Route::apiResource('add-coupons', 'AddCouponsApiController');
+  Route::post('/AddCoupon', 'AddCouponsApiController@AddCoupon');
+  Route::post('/CheckCoupon', 'AddCouponsApiController@CheckCoupon');
+
+  // Payout
+  Route::post('/getTotalPayoutAmount', 'PayoutApiController@getTotalPayoutAmount');
+
+
+
+  // message 
+  Route::post('conversations', 'MessageApiController@conversations');
+  Route::post('Message', 'MessageApiController@Message');
+  Route::post('getmessages', 'MessageApiController@getmessages');
+  Route::post('latestmessage', 'MessageApiController@latestmessage');
+
+  // contactus
+  Route::post('contactUs', 'ContactUsApiController@contactUs');
+  Route::get('fcmUpdate', 'AppUsersApiController@fcmUpdate');
+  // email sms push notification
+  Route::post('emailSmsNotification', 'AppUsersApiController@emailSmsNotification');
+  // vechile odometer api
+  Route::get('vechileOdometer', 'VehicleOdometerAPiController@vechileodometer');
+  Route::post('odometerModelYear', 'VehicleOdometerAPiController@odometerModelYear');
+  Route::get('odometermannual', 'VehicleOdometerAPiController@odometermannual');
+
+  // vechile odometer api
+  Route::get('getVehicleFuelTypes', 'VehicleFuelTypeApiController@getVehicleFuelTypes');
+
+  //currency
+  Route::post('/getCurrencyDetails', 'CurrencyApiController@index');
+  Route::get('/updateRates', 'CurrencyApiController@updateRates'); // set in cron JOB
+  // https://domainname.com/api/v1/updateRates
+
+
+});

@@ -1,0 +1,240 @@
+<?php
+
+return [
+
+    // General
+    'success' => 'نجاح',
+    'failed' => 'فشل',
+    'forbidden' => '403 ممنوع.',
+    'Validation_error' => 'خطأ في التحقق.',
+    'Internal_Server_Error' => 'خطأ في الخادم الداخلي.',
+    'api_request_failed' => 'فشل طلب واجهة البرمجة.',
+    'something_wrong' => 'حدث خطأ ما.',
+    'ServerError_internal_server_error' => 'خطأ في الخادم الداخلي.',
+    'Result_found' => 'تم العثور على النتيجة.',
+    'token_not_match' => 'الرمز لا يتطابق.',
+    'invalid_token' => 'رمز غير صالح.',
+
+    // User / Auth
+    'user_not_found' => 'المستخدم غير موجود.',
+    'User_not_found' => 'المستخدم غير موجود.',
+    'user_not_exist' => 'المستخدم غير موجود.',
+    'user_alredy_exist' => 'المستخدم موجود بالفعل.',
+    'user_exist' => 'المستخدم موجود.',
+    'User_not_register' => 'المستخدم غير مسجل.',
+    'account_inactive' => 'الحساب غير نشط.',
+    'user_deleted_successfully' => 'تم حذف المستخدم بنجاح.',
+    'update_profile_success' => 'تم تحديث الملف الشخصي بنجاح.',
+    'profile_image_successfully' => 'تم تحديث صورة الملف الشخصي بنجاح.',
+    'Failed_to_upload_image' => 'فشل في تحميل الصورة.',
+    'No_image_found_in_the_request' => 'لم يتم العثور على صورة في الطلب.',
+
+    // OTP / Auth flows
+    'noOTP_recordFound' => 'لم يتم العثور على سجل OTP.',
+    'OTPhas_expired' => 'انتهت صلاحية OTP.',
+    'OTP_varified' => 'تم التحقق من OTP بنجاح.',
+    'Incorrect_OTP' => 'OTP غير صحيح.',
+    'Wrong_OTP' => 'OTP غير صحيح.',
+    'OTP_sent_successfully' => 'تم إرسال OTP بنجاح.',
+    'OTP_resent_succesfully' => 'تم إعادة إرسال OTP بنجاح.',
+    'Login_Sucessfully' => 'تم تسجيل الدخول بنجاح.',
+    'Logout_Sucessfully' => 'تم تسجيل الخروج بنجاح.',
+    'RESET_OTP_Found_YOU_CAN_PROCEED' => 'تم التحقق من OTP، يمكنك المتابعة.',
+    'RESET_OTP_ERROR' => 'OTP غير صالح.',
+
+    // Password
+    'Password_reset_OTP' => 'تم إرسال OTP الخاص بكلمة المرور بنجاح.',
+    'password_Set_error' => 'خطأ في تعيين كلمة المرور.',
+    'Password_changed_successfully' => 'تم تغيير كلمة المرور بنجاح.',
+    'password_does_not_match' => 'كلمة المرور غير متطابقة.',
+    'new_password_same_as_old' => 'كلمة المرور الجديدة لا يمكن أن تكون نفس القديمة.',
+    'password_updated_successfully' => 'تم تحديث كلمة المرور بنجاح.',
+
+    // Email & Phone
+    'email_already_exists' => 'البريد الإلكتروني موجود بالفعل.',
+    'email_is_not_exists' => 'البريد الإلكتروني غير موجود.',
+    'email_same_as_current' => 'البريد الإلكتروني هو نفسه الحالي.',
+    'email_available_move_OTP_screen' => 'البريد الإلكتروني متاح، انتقل إلى شاشة OTP.',
+    'email_updated_successfully' => 'تم تحديث البريد الإلكتروني بنجاح.',
+    'Phone_number_is_avilable' => 'رقم الهاتف متاح.',
+    'phone_number_not_exists' => 'رقم الهاتف غير موجود.',
+    'mobile_number_already_exists' => 'رقم الجوال موجود بالفعل.',
+    'mobile_number_same_as_current' => 'رقم الجوال هو نفسه الحالي.',
+    'mobile_availabel_move_OTP_screen' => 'رقم الجوال متاح، انتقل إلى شاشة OTP.',
+    'mobile_number_updated_successfully' => 'تم تحديث رقم الجوال بنجاح.',
+
+    // Booking
+    'booking_not_found_or_not_editable' => 'لم يتم العثور على الحجز أو غير قابل للتعديل.',
+    'booking_cancellation_time_limit_exceeded' => 'تم تجاوز مهلة إلغاء الحجز.',
+    'booking_cancelled_successfully' => 'تم إلغاء الحجز بنجاح.',
+    'booking_confirmed_successfully' => 'تم تأكيد الحجز بنجاح.',
+    'booking_confirmed_time_limit_exceeded' => 'تم تجاوز مهلة تأكيد الحجز.',
+    'booking_extension_not_found' => 'لم يتم العثور على تمديد الحجز.',
+    'invalid_booking_type' => 'نوع الحجز غير صالح.',
+    'booked_succesfully' => 'تم الحجز بنجاح.',
+    'please_choose_cancellation_reason' => 'يرجى اختيار سبب الإلغاء.',
+    'itemBookingDate' => 'تم جلب تواريخ حجز العنصر بنجاح.',
+    'bookingpayment' => 'تم جلب حالة الدفع الخاصة بالحجز بنجاح.',
+    'bookings_fetched' => 'تم جلب الحجوزات بنجاح.',
+    'upcoming_bookings_is' => 'تم جلب الحجوزات القادمة بنجاح.',
+    'ongoing_bookings_is' => 'تم جلب الحجوزات الجارية بنجاح.',
+    'previous_bookings_is' => 'تم جلب الحجوزات السابقة بنجاح.',
+    'vendor_upcoming_bookings_is' => 'تم جلب حجوزات المزود القادمة بنجاح.',
+    'vendor_ongoing_bookings_is' => 'تم جلب حجوزات المزود الجارية بنجاح.',
+    'vendor_previous_bookings_is' => 'تم جلب حجوزات المزود السابقة بنجاح.',
+    'dates_are_not_available' => 'التواريخ المحددة غير متاحة.',
+
+    // Wallet
+    'Wallet_amount' => 'تم جلب رصيد المحفظة بنجاح.',
+    'vendor_Wallet_amount' => 'تم جلب رصيد محفظة المزود بنجاح.',
+    'wallet_amount_not_sufficient' => 'رصيد المحفظة غير كافٍ.',
+    'did_not_have_sufficient_balance' => 'الرصيد غير كافٍ للسحب.',
+
+    // Item
+    'item_not_found' => 'العنصر غير موجود.',
+    'item_added' => 'تم إضافة العنصر بنجاح.',
+    'item_updated_successfully' => 'تم تحديث العنصر بنجاح.',
+    'item_deleted_successfully' => 'تم حذف العنصر بنجاح.',
+    'item_not_delivered_yet' => 'العنصر لم يتم تسليمه بعد.',
+    'item_delivered_status_updated' => 'تم تحديث حالة تسليم العنصر بنجاح.',
+    'item_received_status_updated' => 'تم تحديث حالة استلام العنصر بنجاح.',
+    'item_returned_status_updated' => 'تم تحديث حالة إرجاع العنصر بنجاح.',
+    'images_added_successfully' => 'تم إضافة الصور بنجاح.',
+    'please_upload_image_after_delete' => 'يرجى رفع الصورة بعد الحذف.',
+    'Deleted_successful' => 'تم الحذف بنجاح.',
+    'Failed_to_delete_front_image_Please_try_again_later' => 'فشل في حذف الصورة الأمامية. يرجى المحاولة لاحقاً.',
+    'Failed_to_delete_gallery_image_Please_try_again_later' => 'فشل في حذف صورة المعرض. يرجى المحاولة لاحقاً.',
+
+    // Wishlist
+    'already_exist' => 'العنصر موجود بالفعل في قائمة الرغبات.',
+    'Added_successfully' => 'تمت الإضافة بنجاح.',
+    'item_not_found_in_wishlist' => 'العنصر غير موجود في قائمة الرغبات.',
+    'removed_from_wishlist_successfully' => 'تمت الإزالة من قائمة الرغبات بنجاح.',
+    'wishlist_items_fetched_successfully' => 'تم جلب عناصر قائمة الرغبات بنجاح.',
+
+    // Reviews
+    'You_must_book_the_item_before_giving_a_review' => 'يجب عليك حجز العنصر قبل ترك تقييم.',
+    'A_review_already_exists_for_this_booking_guest_item' => 'يوجد تقييم مسبق لهذا الحجز والعنصر.',
+    'Review_created_successfully' => 'تم إنشاء التقييم بنجاح.',
+    'You_can_only_review_bookings_that_belong_to_you' => 'يمكنك فقط تقييم الحجوزات الخاصة بك.',
+    'A_review_already_exists_for_this_user' => 'يوجد تقييم مسبق لهذا المستخدم.',
+    'Review_updated_successfully' => 'تم تحديث التقييم بنجاح.',
+    'Reviews_retrieved_successfully' => 'تم جلب التقييمات بنجاح.',
+
+    // Notifications
+    'emailNotification' => 'تم تحديث إشعارات البريد الإلكتروني بنجاح.',
+    'pushNotification' => 'تم تحديث إشعارات الدفع بنجاح.',
+    'smsNotification' => 'تم تحديث إشعارات الرسائل القصيرة بنجاح.',
+    'emailsmsnotification' => 'تم تحديث إعدادات إشعارات البريد الإلكتروني والرسائل القصيرة بنجاح.',
+    'fcm_updated_successfully' => 'تم تحديث FCM بنجاح.',
+
+    // Coupons
+    'coupon_code_allready_exists' => 'رمز القسيمة موجود بالفعل.',
+    'coupon_added_successfully' => 'تم إضافة القسيمة بنجاح.',
+    'coupon_code_not_exist' => 'رمز القسيمة غير موجود.',
+
+    // Locations
+    'yourLocations_found' => 'تم العثور على المواقع بنجاح.',
+    'locations_found' => 'تم العثور على المواقع بنجاح.',
+
+    // Miscellaneous
+    'feedback_added' => 'تم إضافة الملاحظات بنجاح.',
+    'currency_rates_updated_successfully' => 'تم تحديث أسعار الصرف بنجاح.',
+    'static_page_data' => 'تم جلب بيانات الصفحة الثابتة بنجاح.',
+    'slider_data' => 'تم جلب بيانات السلايدر بنجاح.',
+    'slider_deleted' => 'تم حذف السلايدر بنجاح.',
+    'incorrect_page_name' => 'اسم الصفحة غير صحيح.',
+    'Product_not_found' => 'المنتج غير موجود.',
+    'product_status_updated_successfully' => 'تم تحديث حالة المنتج بنجاح.',
+    'dashboard_stats_retrieved_successfully' => 'تم جلب إحصائيات لوحة التحكم بنجاح.',
+    'bank_account_created_successfully' => 'تم إنشاء الحساب البنكي بنجاح.',
+    'bank_account_updated_successfully' => 'تم تحديث الحساب البنكي بنجاح.',
+    'bank_account_retrieved_successfully' => 'تم جلب الحساب البنكي بنجاح.',
+    'bank_account_not_found' => 'الحساب البنكي غير موجود.',
+    'hostRequest' => 'تم معالجة طلب المضيف بنجاح.',
+    'host_not_found' => 'المضيف غير موجود.',
+    'api_request_failed' => 'فشل طلب واجهة البرمجة.',
+
+    // Support Tickets
+    'Support_ticket_thread_created_successfully' => 'تم إنشاء سلسلة تذكرة الدعم بنجاح.',
+    'Support_ticket_thread_not_found' => 'سلسلة تذكرة الدعم غير موجودة.',
+    'not_have_permission' => 'ليس لديك الإذن لتنفيذ هذا الإجراء.',
+    'Support_ticket_reply_created_successfully' => 'تم إنشاء رد على تذكرة الدعم بنجاح.',
+    'User_threads_retrieved_successfully' => 'تم جلب سلاسل المستخدم بنجاح.',
+    'Reply_threads_retrieved_successfully' => 'تم جلب سلاسل الردود بنجاح.',
+    'You_do_not_have_permission_view_this_thread' => 'ليس لديك الإذن لمشاهدة هذه السلسلة.',
+    'You_do_not_have_permission_close_this_thread' => 'ليس لديك الإذن لإغلاق هذه السلسلة.',
+    'support_ticket_closed_successfully' => 'تم إغلاق تذكرة الدعم بنجاح.',
+
+    // Others
+    'Validation_Error' => 'خطأ في التحقق.',
+    'Profile_Retrieved_Successfully' => 'تم جلب الملف الشخصي بنجاح.',
+    'ItemType_found' => 'تم العثور على نوع العنصر بنجاح.',
+    'date_added_successfully' => 'تم إضافة التاريخ/التواريخ بنجاح.',
+    'itemType_found' => 'تم العثور على نوع العنصر بنجاح.',
+    'hostRequest' => 'تم معالجة طلب المضيف بنجاح.',
+    'updated_successfully' => 'تم التحديث بنجاح.',
+    'records_updated' => 'تم تحديث وإضافة السجلات.',
+    'record_created' => 'تم إنشاء السجل بنجاح.',
+    'record_deleted' => 'تم حذف السجل بنجاح.',
+    'validation_failed' => 'فشل التحقق.',
+    'not_found' => 'السجل غير موجود.',
+    'this_item_is_already_booked' => 'هذا العنصر محجوز بالفعل.',
+
+    'steps' => [
+        'basic' => 'المعلومات الأساسية',
+        'title' => 'العنوان والوصف',
+        'location' => 'الموقع',
+        'features' => 'الميزات',
+        'price' => 'التسعير',
+        'policies' => 'السياسات',
+        'photos' => 'الصور',
+        'document' => 'المستندات',
+        'calendar' => 'التقويم',
+    ],
+
+    'itemType_title_singular' => 'نوع العنصر',
+    'feature_title_singular' => 'ميزة',
+    'item_setting' => 'إعدادات العنصر',
+
+    'vehicle_type' => 'نوع المركبة',
+    'vehicle_features' => 'ميزات المركبة',
+    'vehicle_setting' => 'إعدادات المركبة',
+    'vehicle_makes' => 'ماركات المركبات',
+    'vehicle_model' => 'طراز المركبة',
+
+    'save' => 'حفظ',
+    'update' => 'تحديث',
+    'delete' => 'حذف',
+    'cancel' => 'إلغاء',
+    'confirm' => 'تأكيد',
+
+    'validation' => [
+        'required' => 'حقل :attribute مطلوب.',
+        'string' => 'يجب أن يكون :attribute نصاً.',
+        'numeric' => 'يجب أن يكون :attribute رقماً.',
+        'array' => 'يجب أن يكون :attribute مصفوفة.',
+        'min' => [
+            'array' => 'يجب أن يحتوي :attribute على :min عناصر على الأقل.',
+        ],
+    ],
+
+    'attributes' => [
+        'id' => 'المعرف',
+        'city' => 'المدينة',
+        'state' => 'الولاية',
+        'address_line_1' => 'العنوان (السطر 1)',
+        'features' => 'الميزات',
+        'rules' => 'القواعد',
+        'start_date' => 'تاريخ البدء',
+        'end_date' => 'تاريخ الانتهاء',
+        'item_id' => 'معرف العنصر',
+        'price' => 'السعر',
+        'min_stay' => 'أقل مدة إقامة',
+        'status' => 'الحالة',
+    ],
+
+    'are_you_sure' => 'هل أنت متأكد؟',
+    'action_cannot_be_undone' => 'هذا الإجراء لا يمكن التراجع عنه.',
+    'yes_continue' => 'نعم، متابعة',
+];

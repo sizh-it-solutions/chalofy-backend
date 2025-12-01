@@ -1,0 +1,240 @@
+<?php
+
+return [
+
+    // General
+    'success' => 'Éxito',
+    'failed' => 'Fallido',
+    'forbidden' => '403 Prohibido.',
+    'Validation_error' => 'Error de validación.',
+    'Internal_Server_Error' => 'Error interno del servidor.',
+    'api_request_failed' => 'Error en la solicitud de API.',
+    'something_wrong' => 'Algo salió mal.',
+    'ServerError_internal_server_error' => 'Error interno del servidor.',
+    'Result_found' => 'Resultado encontrado.',
+    'token_not_match' => 'El token no coincide.',
+    'invalid_token' => 'Token inválido.',
+
+    // User / Auth
+    'user_not_found' => 'Usuario no encontrado.',
+    'User_not_found' => 'Usuario no encontrado.',
+    'user_not_exist' => 'El usuario no existe.',
+    'user_alredy_exist' => 'El usuario ya existe.',
+    'user_exist' => 'El usuario existe.',
+    'User_not_register' => 'El usuario no está registrado.',
+    'account_inactive' => 'La cuenta está inactiva.',
+    'user_deleted_successfully' => 'Usuario eliminado con éxito.',
+    'update_profile_success' => 'Perfil actualizado con éxito.',
+    'profile_image_successfully' => 'Imagen de perfil actualizada con éxito.',
+    'Failed_to_upload_image' => 'Error al subir la imagen.',
+    'No_image_found_in_the_request' => 'No se encontró imagen en la solicitud.',
+
+    // OTP / Auth flows
+    'noOTP_recordFound' => 'No se encontró registro de OTP.',
+    'OTPhas_expired' => 'El OTP ha expirado.',
+    'OTP_varified' => 'OTP verificado con éxito.',
+    'Incorrect_OTP' => 'OTP incorrecto.',
+    'Wrong_OTP' => 'OTP incorrecto.',
+    'OTP_sent_successfully' => 'OTP enviado con éxito.',
+    'OTP_resent_succesfully' => 'OTP reenviado con éxito.',
+    'Login_Sucessfully' => 'Inicio de sesión exitoso.',
+    'Logout_Sucessfully' => 'Cierre de sesión exitoso.',
+    'RESET_OTP_Found_YOU_CAN_PROCEED' => 'OTP verificado, puedes continuar.',
+    'RESET_OTP_ERROR' => 'OTP inválido.',
+
+    // Password
+    'Password_reset_OTP' => 'OTP de restablecimiento de contraseña enviado con éxito.',
+    'password_Set_error' => 'Error al establecer la contraseña.',
+    'Password_changed_successfully' => 'Contraseña cambiada con éxito.',
+    'password_does_not_match' => 'La contraseña no coincide.',
+    'new_password_same_as_old' => 'La nueva contraseña no puede ser la misma que la anterior.',
+    'password_updated_successfully' => 'Contraseña actualizada con éxito.',
+
+    // Email & Phone
+    'email_already_exists' => 'El correo electrónico ya existe.',
+    'email_is_not_exists' => 'El correo electrónico no existe.',
+    'email_same_as_current' => 'El correo electrónico es el mismo que el actual.',
+    'email_available_move_OTP_screen' => 'Correo disponible, procede a la pantalla de OTP.',
+    'email_updated_successfully' => 'Correo electrónico actualizado con éxito.',
+    'Phone_number_is_avilable' => 'Número de teléfono disponible.',
+    'phone_number_not_exists' => 'El número de teléfono no existe.',
+    'mobile_number_already_exists' => 'El número de móvil ya existe.',
+    'mobile_number_same_as_current' => 'El número de móvil es el mismo que el actual.',
+    'mobile_availabel_move_OTP_screen' => 'Número de móvil disponible, procede a la pantalla de OTP.',
+    'mobile_number_updated_successfully' => 'Número de móvil actualizado con éxito.',
+
+    // Booking
+    'booking_not_found_or_not_editable' => 'Reserva no encontrada o no editable.',
+    'booking_cancellation_time_limit_exceeded' => 'Tiempo límite de cancelación de reserva excedido.',
+    'booking_cancelled_successfully' => 'Reserva cancelada con éxito.',
+    'booking_confirmed_successfully' => 'Reserva confirmada con éxito.',
+    'booking_confirmed_time_limit_exceeded' => 'Tiempo límite de confirmación de reserva excedido.',
+    'booking_extension_not_found' => 'Extensión de reserva no encontrada.',
+    'invalid_booking_type' => 'Tipo de reserva inválido.',
+    'booked_succesfully' => 'Reservado con éxito.',
+    'please_choose_cancellation_reason' => 'Por favor selecciona una razón de cancelación.',
+    'itemBookingDate' => 'Fechas de reserva del artículo obtenidas con éxito.',
+    'bookingpayment' => 'Estado de pago de la reserva obtenido con éxito.',
+    'bookings_fetched' => 'Reservas obtenidas con éxito.',
+    'upcoming_bookings_is' => 'Próximas reservas obtenidas con éxito.',
+    'ongoing_bookings_is' => 'Reservas en curso obtenidas con éxito.',
+    'previous_bookings_is' => 'Reservas anteriores obtenidas con éxito.',
+    'vendor_upcoming_bookings_is' => 'Próximas reservas del proveedor obtenidas con éxito.',
+    'vendor_ongoing_bookings_is' => 'Reservas en curso del proveedor obtenidas con éxito.',
+    'vendor_previous_bookings_is' => 'Reservas anteriores del proveedor obtenidas con éxito.',
+    'dates_are_not_available' => 'Las fechas seleccionadas no están disponibles.',
+
+    // Wallet
+    'Wallet_amount' => 'Saldo de la billetera obtenido con éxito.',
+    'vendor_Wallet_amount' => 'Saldo de la billetera del proveedor obtenido con éxito.',
+    'wallet_amount_not_sufficient' => 'Saldo de la billetera insuficiente.',
+    'did_not_have_sufficient_balance' => 'Saldo insuficiente para el retiro.',
+
+    // Item
+    'item_not_found' => 'Artículo no encontrado.',
+    'item_added' => 'Artículo agregado con éxito.',
+    'item_updated_successfully' => 'Artículo actualizado con éxito.',
+    'item_deleted_successfully' => 'Artículo eliminado con éxito.',
+    'item_not_delivered_yet' => 'Artículo aún no entregado.',
+    'item_delivered_status_updated' => 'Estado de entrega del artículo actualizado con éxito.',
+    'item_received_status_updated' => 'Estado de recibido del artículo actualizado con éxito.',
+    'item_returned_status_updated' => 'Estado de devolución del artículo actualizado con éxito.',
+    'images_added_successfully' => 'Imágenes agregadas con éxito.',
+    'please_upload_image_after_delete' => 'Por favor sube una imagen después de eliminar.',
+    'Deleted_successful' => 'Eliminado con éxito.',
+    'Failed_to_delete_front_image_Please_try_again_later' => 'Error al eliminar la imagen principal. Intenta nuevamente más tarde.',
+    'Failed_to_delete_gallery_image_Please_try_again_later' => 'Error al eliminar la imagen de la galería. Intenta nuevamente más tarde.',
+
+    // Wishlist
+    'already_exist' => 'El artículo ya está en la lista de deseos.',
+    'Added_successfully' => 'Agregado con éxito.',
+    'item_not_found_in_wishlist' => 'Artículo no encontrado en la lista de deseos.',
+    'removed_from_wishlist_successfully' => 'Eliminado de la lista de deseos con éxito.',
+    'wishlist_items_fetched_successfully' => 'Lista de deseos obtenida con éxito.',
+
+    // Reviews
+    'You_must_book_the_item_before_giving_a_review' => 'Debes reservar el artículo antes de dejar una reseña.',
+    'A_review_already_exists_for_this_booking_guest_item' => 'Ya existe una reseña para esta reserva.',
+    'Review_created_successfully' => 'Reseña creada con éxito.',
+    'You_can_only_review_bookings_that_belong_to_you' => 'Solo puedes reseñar reservas que te pertenecen.',
+    'A_review_already_exists_for_this_user' => 'Ya existe una reseña para este usuario.',
+    'Review_updated_successfully' => 'Reseña actualizada con éxito.',
+    'Reviews_retrieved_successfully' => 'Reseñas obtenidas con éxito.',
+
+    // Notifications
+    'emailNotification' => 'Notificación por correo actualizada con éxito.',
+    'pushNotification' => 'Notificación push actualizada con éxito.',
+    'smsNotification' => 'Notificación por SMS actualizada con éxito.',
+    'emailsmsnotification' => 'Notificaciones de correo y SMS actualizadas con éxito.',
+    'fcm_updated_successfully' => 'FCM actualizado con éxito.',
+
+    // Coupons
+    'coupon_code_allready_exists' => 'El código de cupón ya existe.',
+    'coupon_added_successfully' => 'Cupón agregado con éxito.',
+    'coupon_code_not_exist' => 'El código de cupón no existe.',
+
+    // Locations
+    'yourLocations_found' => 'Ubicaciones encontradas con éxito.',
+    'locations_found' => 'Ubicaciones encontradas con éxito.',
+
+    // Miscellaneous
+    'feedback_added' => 'Comentarios agregados con éxito.',
+    'currency_rates_updated_successfully' => 'Tasas de cambio actualizadas con éxito.',
+    'static_page_data' => 'Datos de la página estática obtenidos con éxito.',
+    'slider_data' => 'Datos del slider obtenidos con éxito.',
+    'slider_deleted' => 'Slider eliminado con éxito.',
+    'incorrect_page_name' => 'Nombre de página incorrecto.',
+    'Product_not_found' => 'Producto no encontrado.',
+    'product_status_updated_successfully' => 'Estado del producto actualizado con éxito.',
+    'dashboard_stats_retrieved_successfully' => 'Estadísticas del panel obtenidas con éxito.',
+    'bank_account_created_successfully' => 'Cuenta bancaria creada con éxito.',
+    'bank_account_updated_successfully' => 'Cuenta bancaria actualizada con éxito.',
+    'bank_account_retrieved_successfully' => 'Cuenta bancaria obtenida con éxito.',
+    'bank_account_not_found' => 'Cuenta bancaria no encontrada.',
+    'hostRequest' => 'Solicitud de anfitrión procesada con éxito.',
+    'host_not_found' => 'Anfitrión no encontrado.',
+    'api_request_failed' => 'Error en la solicitud de API.',
+
+    // Support Tickets
+    'Support_ticket_thread_created_successfully' => 'Hilo de ticket de soporte creado con éxito.',
+    'Support_ticket_thread_not_found' => 'Hilo de ticket de soporte no encontrado.',
+    'not_have_permission' => 'No tienes permiso para realizar esta acción.',
+    'Support_ticket_reply_created_successfully' => 'Respuesta al ticket de soporte creada con éxito.',
+    'User_threads_retrieved_successfully' => 'Hilos del usuario obtenidos con éxito.',
+    'Reply_threads_retrieved_successfully' => 'Hilos de respuesta obtenidos con éxito.',
+    'You_do_not_have_permission_view_this_thread' => 'No tienes permiso para ver este hilo.',
+    'You_do_not_have_permission_close_this_thread' => 'No tienes permiso para cerrar este hilo.',
+    'support_ticket_closed_successfully' => 'Ticket de soporte cerrado con éxito.',
+
+    // Others
+    'Validation_Error' => 'Error de validación.',
+    'Profile_Retrieved_Successfully' => 'Perfil obtenido con éxito.',
+    'ItemType_found' => 'Tipo de artículo encontrado con éxito.',
+    'date_added_successfully' => 'Fecha(s) agregada(s) con éxito.',
+    'itemType_found' => 'Tipo de artículo encontrado con éxito.',
+    'hostRequest' => 'Solicitud de anfitrión procesada con éxito.',
+    'updated_successfully' => 'Actualizado con éxito.',
+    'records_updated' => 'Registros actualizados y agregados con éxito.',
+    'record_created' => 'Registro creado con éxito.',
+    'record_deleted' => 'Registro eliminado con éxito.',
+    'validation_failed' => 'La validación falló.',
+    'not_found' => 'Registro no encontrado.',
+
+    'steps' => [
+        'basic' => 'Información básica',
+        'title' => 'Título y descripción',
+        'location' => 'Ubicación',
+        'features' => 'Características',
+        'price' => 'Precios',
+        'policies' => 'Políticas',
+        'photos' => 'Fotos',
+        'document' => 'Documentos',
+        'calendar' => 'Calendario',
+    ],
+
+    'itemType_title_singular' => 'Tipo de artículo',
+    'feature_title_singular' => 'Característica',
+    'item_setting' => 'Configuración de artículo',
+
+    'vehicle_type' => 'Tipo de vehículo',
+    'vehicle_features' => 'Características del vehículo',
+    'vehicle_setting' => 'Configuración del vehículo',
+    'vehicle_makes' => 'Marcas de vehículos',
+    'vehicle_model' => 'Modelo de vehículo',
+
+    'save' => 'Guardar',
+    'update' => 'Actualizar',
+    'delete' => 'Eliminar',
+    'cancel' => 'Cancelar',
+    'confirm' => 'Confirmar',
+
+    'validation' => [
+        'required' => 'El campo :attribute es obligatorio.',
+        'string' => 'El campo :attribute debe ser una cadena de texto.',
+        'numeric' => 'El campo :attribute debe ser numérico.',
+        'array' => 'El campo :attribute debe ser un arreglo.',
+        'min' => [
+            'array' => 'El campo :attribute debe tener al menos :min elementos.',
+        ],
+    ],
+
+    'attributes' => [
+        'id' => 'ID',
+        'city' => 'Ciudad',
+        'state' => 'Estado',
+        'address_line_1' => 'Dirección línea 1',
+        'features' => 'Características',
+        'rules' => 'Reglas',
+        'start_date' => 'Fecha de inicio',
+        'end_date' => 'Fecha de fin',
+        'item_id' => 'ID del artículo',
+        'price' => 'Precio',
+        'min_stay' => 'Estancia mínima',
+        'status' => 'Estado',
+    ],
+
+    'are_you_sure' => '¿Estás seguro?',
+    'action_cannot_be_undone' => 'Esta acción no se puede deshacer.',
+    'yes_continue' => 'Sí, continuar',
+    'this_item_is_already_booked' => 'Este vehículo ya está reservado.',
+];

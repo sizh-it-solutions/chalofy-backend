@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Ready...</title>
+  <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/css/payment.css">
+  <style>
+    .top-new {
+      max-width: 100%;
+      margin: 50px auto;
+      background: #fff;
+      border-radius: 8px;
+      margin-bottom: 0px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, );
+    }
+
+    .container {
+    display: none; /* Hide all content (payment options etc.) */
+     }
+
+    .payment-list {
+      max-width: 100%;
+      margin: 50px auto;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+      margin-top: 0px;
+    }
+
+    .payment-item {
+      /* display: flex; */
+      align-items: center;
+      justify-content: space-between;
+      padding: 15px 11px;
+      border-bottom: 1px solid #ddd;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .payment-item:hover {
+      background: #f1f1f1;
+    }
+
+    .payment-item img {
+      width: 87px;
+      height: 43px;
+      object-fit: contain;
+      margin-right: 35px;
+    }
+
+    .payment-item span {
+      font-size: 16px;
+      color: #333;
+    }
+
+    .payment-item .arrow {
+      font-size: 29px;
+      color: #888;
+      position: relative;
+      top: -2px;
+      float: right;
+      padding-right: 15px;
+    }
+
+    .payment-card {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.payment-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+}
+
+.payment-button:focus {
+    outline: none;
+    box-shadow: none;
+}
+
+  </style>
+
+</head>
+
+<body>
+  <div class="loader-overlay" style='display:none'>
+    <div class="loader"></div>
+    <div class="loader-text">In process ...</div>
+  </div>
+  <div class="container">
+
+
+
+  <div class="text-center top-new" style="margin-top:30px; display: none;" >
+    <p class="text-muted mb-4 d-flex align-items-center justify-content-center" style="font-size: 0.95rem;">
+        Please select your preferred payment method below to proceed securely.
+    </p>
+</div>
+
+
+
+    <div class="payment-list">
+      @foreach ($paymentMethods as $method => $details)
+      @if ($details['active'])
+      <div class="payment-item" @if($method == 'paypal') class="noinel" @endif @if($method == 'stripe')
+      id="{{ $details['id'] }}" @endif>
+      @if ($details['form'])
+      <!-- Form Submission for Payment Method -->
+      <form action="{{ $details['route'] }}" method="post" id="{{ $details['id'] }}" class="payment-form">
+      @csrf
+      <!-- Wrapping the whole payment item in a clickable area -->
+      <div onclick="document.getElementById('{{ $method }}-button').click()">
+      <img src="{{ $details['image'] }}" alt="Pay via {{ ucfirst($method) }}" class="payment-image">
+      <span class="payment-method-name">{{ ucfirst($method) }}</span>
+      <span class="arrow">&#8250;</span>
+      <button type="submit" style="display: none;" id="{{ $method }}-button">
+        <!-- Hidden submit button for form submission -->
+      </button>
+      </div>
+      </form>
+      @else
+      <!-- Link for Payment Method without Form -->
+      <a href="{{ $details['route'] }}">
+      <!-- Make the whole div clickable -->
+      <img src="{{ $details['image'] }}" alt="Pay via {{ ucfirst($method) }}" class="payment-image">
+      <span class="payment-method-name">{{ ucfirst($method) }}</span>
+      <span class="arrow">&#8250;</span>
+      </a>
+      @endif
+
+      </div>
+    @endif
+      @if ($method == 'stripe' && Route::currentRouteName() == 'wallet_recharge_form')
+      @break
+    @endif
+    @endforeach
+
+    </div>
+
+  </div>
+  
+
+  <!-- Add Bootstrap JS and jQuery scripts here -->
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+  <!-- Include Stripe.js script -->
+  <script src="https://js.stripe.com/v3/"></script>
+
+
+  <!-- JavaScript for the loader and Stripe integration -->
+  <script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const delay = 2000; // Delay before auto-submit (4 seconds)
+    const loader = document.querySelector('.loader-overlay');
+    if (loader) loader.style.display = 'flex';
+
+    // Try to find the first payment form
+    const paymentForm = document.querySelector(".payment-form");
+    const paymentLink = document.querySelector(".payment-item a");
+
+    // Helper to show a message in loader
+    function showLoaderMessage(text) {
+      if (loader) {
+        loader.style.display = 'flex';
+        loader.querySelector('.loader-text').textContent = text;
+      }
+    }
+
+    if (paymentForm) {
+      // Detect which payment method it is
+      const methodName = paymentForm.querySelector(".payment-method-name")?.textContent || "your payment provider";
+      showLoaderMessage(`We are redirecting to ${methodName}...`);
+
+      setTimeout(() => {
+        showLoaderMessage(`Connecting securely to ${methodName}...`);
+        paymentForm.submit();
+      }, delay);
+
+    } else if (paymentLink) {
+      const methodName = paymentLink.querySelector(".payment-method-name")?.textContent || "your payment provider";
+      showLoaderMessage(`We are redirecting to ${methodName}...`);
+
+      setTimeout(() => {
+        showLoaderMessage(`Opening ${methodName}...`);
+        window.location.href = paymentLink.href;
+      }, delay);
+    }
+  });
+</script>
+
+
+
+
+
+
+</body>
+
+</html>

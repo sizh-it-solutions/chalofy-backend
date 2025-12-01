@@ -1,0 +1,2260 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Admin;
+
+use App\Http\Controllers\Controller;
+
+use App\Http\Controllers\Traits\BookingAvailableTrait;
+use App\Http\Controllers\Traits\MediaUploadingTrait;
+use App\Http\Controllers\Traits\MiscellaneousTrait;
+use App\Http\Controllers\Traits\PaymentStatusUpdaterTrait;
+use App\Http\Controllers\Traits\ResponseTrait;
+use App\Http\Controllers\Traits\UserWalletTrait;
+use App\Http\Controllers\Traits\{VendorWalletTrait, OTPTrait};
+use App\Constants\DateFormat;
+use App\Models\AppUser;
+use App\Models\{Booking, BookingExtension};
+use App\Models\BookingCancellationReason;
+use App\Models\CancellationPolicy;
+use App\Models\Modern\Currency;
+use App\Models\BookingFinance;
+use App\Models\Modern\Item;
+use App\Models\Modern\ItemDate;
+use App\Models\Modern\ItemType;
+use App\Models\Review;
+use Carbon\Carbon;
+use DateTime;
+use DB;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Validator;
+
+class BookingApiController extends Controller
+{
+    use OTPTrait, MediaUploadingTrait, ResponseTrait, MiscellaneousTrait, UserWalletTrait, VendorWalletTrait, PaymentStatusUpdaterTrait, BookingAvailableTrait;
+
+    /**
+     * Check the availability of bookings for a item within a given date range.
+     *
+     * @param Request $request
+     * @return \Illuminate\Http\Response
+     */
+
+    public function checkBookingAvailability(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|exists:rental_items,id',
+            'check_in' => 'required|date_format:Y-m-d|after_or_equal:today',
+            'check_out' => 'required|date_format:Y-m-d|after_or_equal:check_in',
+            'start_time' => 'nullable|date_format:g:i A',
+            'end_time' => 'nullable|date_format:g:i A',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        try {
+            $itemId = $request->input('item_id');
+            $checkInDate = $request->input('check_in');
+            $checkOutDate = $request->input('check_out');
+
+            $startTime = $request->input('start_time');
+            $endTime = $request->input('end_time');
+
+
+            $startDatetime = $startTime
+                ? Carbon::createFromFormat('Y-m-d g:i A', $checkInDate . ' ' . trim($startTime))
+                : Carbon::parse($checkInDate)->startOfDay();
+
+            $endDatetime = $endTime
+                ? Carbon::createFromFormat('Y-m-d g:i A', $checkOutDate . ' ' . trim($endTime))
+                : Carbon::parse($checkOutDate)->endOfDay();
+            $calculatedEndTime = "11:45 PM";
+            $blockedDates = ItemDate::where('item_id', $itemId)
+                ->whereBetween('date', [$checkInDate, $checkOutDate])
+                ->where('status', 'not Available')
+                ->pluck('date')
+                ->toArray();
+            if (!empty($blockedDates)) {
+                return $this->addErrorResponse(422, trans('front.dates_are_not_available'), [
+                    'blocked_dates' => $blockedDates
+                ]);
+            }
+            $existingBookings = Booking::where('itemid', $itemId)
+                ->whereIn('status', ['Pending', 'Confirmed', 'Completed'])
+                ->where(function ($q) use ($startDatetime, $endDatetime) {
+                    $q->whereBetween('check_in', [$startDatetime, $endDatetime])
+                        ->orWhereBetween('check_out', [$startDatetime, $endDatetime])
+                        ->orWhere(function ($q2) use ($startDatetime, $endDatetime) {
+                            $q2->where('check_in', '<', $startDatetime)
+                                ->where('check_out', '>', $endDatetime);
+                        });
+                })
+                ->orderBy('check_in', 'asc')
+                ->get();
+            $lastBooking = Booking::where('itemid', $itemId)
+                ->whereDate('check_out', '<=', $checkOutDate)
+                ->whereIn('status', ['Pending', 'Confirmed', 'Completed'])
+                ->orderBy('check_out', 'desc')
+                ->first();
+
+            if (
+                $lastBooking &&
+                Carbon::parse($lastBooking->check_out)->toDateString() === Carbon::parse($checkInDate)->toDateString()
+            ) {
+                $nextStartTime = $lastBooking && $lastBooking->end_time
+                    ? Carbon::parse($lastBooking->end_time)->format('g:i A')
+                    : '7:00 AM';
+            } else {
+                $nextStartTime = '7:00 AM';
+            }
+
+
+            if ($existingBookings->isNotEmpty()) {
+                $bookingSummary = [];
+                foreach ($existingBookings as $booking) {
+                    $bookingSummary[] = [
+                        'date' => Carbon::parse($booking->check_in)->toDateString() . " --- " . Carbon::parse($booking->check_out)->toDateString(),
+                        'start_time' => $booking->start_time ? Carbon::parse($booking->start_time)->format('g:i A') : 'N/A',
+                        'end_time' => $booking->end_time ? Carbon::parse($booking->end_time)->format('g:i A') : 'N/A',
+                    ];
+                }
+
+
+                return $this->addSuccessResponse(422, 'The selected dates have existing bookings.', [
+                    'bookingOverlapDetails' => $bookingSummary,
+                    'next_available_time_on_checkout' => $nextStartTime,
+                    'next_start_time' => $nextStartTime,
+                    'next_end_time' => $calculatedEndTime,
+                ]);
+            }
+            $responseData = [
+                'item_id' => $itemId,
+                'check_in' => $startDatetime->format('Y-m-d'),
+                'check_out' => $endDatetime->format('Y-m-d'),
+                'next_start_time' => $nextStartTime,
+                'next_end_time' => $calculatedEndTime,
+                'is_available' => true,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.Result_found'), [
+                'availability' => $responseData
+            ]);
+
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+
+
+    public function checkBookingAvailability_bk(Request $request)
+    {
+
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|exists:rental_items,id',
+            'check_in' => 'required|date_format:Y-m-d|after_or_equal:today',
+            'check_out' => 'required|date_format:Y-m-d',
+        ]);
+        $allowedModules = $this->sameDayBookingModule();
+
+        $validator->sometimes('check_out', 'after:check_in', function ($input) use ($request, $allowedModules) {
+            return !in_array($request->input('module_id'), $allowedModules);
+        });
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        // try {
+        $ItemId = $request->input('item_id');
+        $checkInDate = $request->input('check_in');
+        $checkOutDate = $request->input('check_out');
+        $module = $this->getModuleIdOrDefault($request);
+        $start_time = $request->input('start_time', null);
+        $end_time = $request->input('end_time', null);
+        $checkOutDateReturn = $checkOutDate;
+        $checkOutDate = $this->returncheckOutDateByModule($checkInDate, $start_time, $checkOutDate, $end_time, $module);
+
+        // Find the item by ID
+        $item = Item::findOrFail($ItemId);
+        $lastBooking = Booking::where('itemid', $ItemId)
+            ->where('check_out', '<=', $checkInDate)
+            ->whereIn('status', ['Pending', 'Confirmed', 'Completed'])
+            ->orderBy('check_out', 'desc')
+            ->first();
+
+        $overlappingBookings = Booking::where('itemid', $ItemId)
+            ->where('check_in', '<', $checkOutDate)
+            ->where('check_out', '>', $checkInDate)
+            ->whereIn('status', ['Pending', 'Confirmed', 'Completed'])
+            ->get();
+
+        $isAvailable = $overlappingBookings->isEmpty();
+        if ($overlappingBookings->isNotEmpty()) {
+            $bookingSummary = [];
+            foreach ($overlappingBookings as $booking) {
+                $date = $booking->check_in;
+                $startTime = Carbon::parse($booking->start_time)->format('H:i');
+                $endTime = Carbon::parse($booking->end_time)->format('H:i');
+
+                if (!isset($bookingSummary[$date])) {
+                    $bookingSummary[$date] = [
+                        'date' => $date,
+                        'start_time' => $startTime,
+                        'end_time' => $endTime,
+                    ];
+                } else {
+                    $bookingSummary[$date]['start_time'] = min($bookingSummary[$date]['start_time'], $startTime);
+                    $bookingSummary[$date]['end_time'] = max($bookingSummary[$date]['end_time'], $endTime);
+                }
+            }
+
+            foreach ($bookingSummary as &$summary) {
+                $summary['start_time'] = Carbon::createFromFormat('H:i', $summary['start_time'])->format('g:i A');
+                $summary['end_time'] = Carbon::createFromFormat('H:i', $summary['end_time'])->format('g:i A');
+            }
+            $flatBookingSummary = array_values($bookingSummary);
+            return $this->addSuccessResponse(422, 'dates overlap with existing bookings', ['bookingOverlapDetails' => $flatBookingSummary]);
+        }
+
+        $getMissingDaya = $this->getMissingDays($ItemId); // It's for office module
+        if ($isAvailable) {
+            $dates = [];
+            $currentDate = Carbon::parse($checkInDate);
+            $endDate = Carbon::parse($checkOutDate);
+            $allDaysMatch = true;
+
+            while ($currentDate < $endDate) {
+                $dates[] = $currentDate->toDateString();
+                $currentDate->addDay(); // Increment by one day
+
+                $dayOfWeek = $currentDate->format('l'); // Get the day of the week (e.g., Monday, Tuesday, etc.)
+                if (in_array($dayOfWeek, $getMissingDaya)) {
+                    $allDaysMatch = false;
+                    break;
+                }
+            }
+
+            if (!$allDaysMatch) {
+                return $this->addErrorResponse(422, trans('front.dates_are_not_available'), '');
+            }
+
+            $ItemDates = ItemDate::where('item_id', $ItemId)
+                ->whereIn('date', $dates)
+                ->where('status', 'not Available')
+                ->get();
+
+            if (count($ItemDates) > 1) {
+                return $this->addErrorResponse(422, trans('front.dates_are_not_available'), '');
+            }
+
+            $force = true;
+
+            if ($ItemDates->where('status', trans('front.not_available'))->count() > 0) {
+                $isAvailable = false;
+            } else {
+                $isAvailable = true;
+            }
+            $nextStartTime = '12:00 AM';
+        } else {
+            return $this->addErrorResponse(422, 'The selected dates overlap with an existing booking', '');
+        }
+
+        if ($lastBooking && Carbon::parse($lastBooking->check_out)->equalTo(Carbon::parse($checkInDate))) {
+
+            $nextStartTime = $lastBooking->end_time;
+        }
+
+        // Prepare the response data
+        $responseData = [
+            'item_id' => $ItemId,
+            'check_in' => $checkInDate,
+            'check_out' => $checkOutDateReturn,
+            'next_start_time' => $nextStartTime,
+            'is_available' => $isAvailable,
+        ];
+
+        if ($isAvailable) {
+            return $this->addSuccessResponse(200, trans('front.Result_found'), ['availability' => $responseData]);
+        } else {
+            return $this->addErrorResponse(500, trans('front.dates_are_not_available'), '');
+        }
+        try {
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    /***** Book the Vehicle */
+    public function bookItem(Request $request)
+    {
+
+
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|exists:rental_items,id',
+            'check_in' => [
+                'required',
+                'date_format:Y-m-d',
+                'after_or_equal:today',
+            ],
+            'token' => 'required|exists:app_users,token',
+            'check_out' => 'required|date_format:Y-m-d',
+            'total_day' => 'nullable|integer',
+            'per_day' => 'nullable|string',
+            'book_for' => 'nullable',
+            'base_price' => 'nullable|string',
+            'security_money' => 'nullable|string',
+            'iva_tax' => 'nullable|string',
+            'total' => 'nullable|string',
+            'currency_code' => 'nullable',
+            'cancellation_reasion' => 'nullable',
+            'transaction' => 'nullable',
+            'payment_method' => 'nullable',
+            'item_img' => 'nullable',
+            'item_title' => 'nullable',
+            'wall_amt' => 'nullable|string',
+            'note' => 'nullable',
+            'cancelled_by' => 'nullable',
+            'host_id' => 'required|exists:app_users,id',
+        ]);
+        $userid = $this->checkUserByToken($request->token);
+        $request->userid = $userid;
+        if (!$userid) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        if ($request->input('wall_amt') > $this->getUserWalletBalance($userid)) {
+            return $this->addErrorResponse(500, trans('front.wallet_amount_not_sufficient'), '');
+        }
+
+
+
+
+        $doorStepAddress = $request->input('doorStep_address');
+        $addressData = [];
+        if (!empty($doorStepAddress)) {
+            $decodedAddress = json_decode($doorStepAddress, true);
+            $addressData = array_intersect_key($decodedAddress, array_flip([
+                'house_floor_number',
+                'building_block_number',
+                'landmark',
+                'full_address',
+                'city',
+                'state',
+                'country',
+                'postal_code',
+                'doorstep_latitude',
+                'doorstep_longitude'
+            ]));
+        }
+
+        $allowedModules = $this->sameDayBookingModule();
+        $validator->sometimes('check_out', 'after:check_in', function ($input) use ($request, $allowedModules) {
+            return !in_array($request->input('module_id'), $allowedModules);
+        });
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+        $dates = [];
+        $checkIn = $request->input('check_in');
+        $checkOut = $request->input('check_out');
+        $itemId = $request->input('item_id');
+        $couponCode = $request->input('couponCode');
+        $start_time = $request->input('start_time', null);
+        $end_time = $request->input('end_time', null);
+        $doorStep_price = $request->input('doorStep_price', 0);
+        $wallet_amount = $this->convertFormattedNumber($request->input('wall_amt'));
+        $currentDate = Carbon::parse($checkIn);
+        $endDate = Carbon::parse($checkOut);
+        $module = $this->getModuleIdOrDefault($request);
+        if (in_array($module, $allowedModules)) {
+            $endDate = Carbon::parse(date('Y-m-d', strtotime($checkOut . ' + 1 day')));
+        }
+        while ($currentDate < $endDate) {
+            $dates[] = $currentDate->toDateString();
+            $currentDate->addDay();
+        }
+        $force = 'false';
+        $ItemDates = ItemDate::where('item_id', $itemId)
+            ->whereIn('date', $dates)
+            ->where('status', 'not Available')
+            ->get();
+        if (count($ItemDates) > 1) {
+            return $this->addErrorResponse(422, trans('front.dates_are_not_available'), '');
+        }
+
+
+        $totalNumberOfBookingPerDay = $this->checkTotalNoOfBookingPerDay($userid);
+        if ($totalNumberOfBookingPerDay === null) {
+            return $this->addErrorResponse(402, 'Per day booking limit exceeded', '');
+        }
+
+
+
+        $item_name = Item::where('id', $itemId)->first();
+        $hostid = $item_name->userid_id;
+
+        if (!$hostid) {
+            return $this->addErrorResponse(404, trans('front.host_not_found'), '');
+        }
+
+        // try {
+        $selectedCurrencyCode = $request->input('selected_currency_code');
+        $convertionRate = Currency::getValueByCurrencyCode($selectedCurrencyCode);
+        $couponCode = $request->input('coupon_code');
+        $totalTime = [];
+        if (in_array($module, $allowedModules)) { // This is for Vechile
+            $totalTime = $this->returnHowManyDaysByModule($checkIn, $start_time, $checkOut, $end_time, $module);
+        }
+        $checkOut = $this->returncheckOutDateByModule($checkIn, $start_time, $checkOut, $end_time, $module); // This  is for Vechile
+        $BookingDataByPrices = $this->getItemPricesDetails($itemId, $checkIn, $checkOut, $force, $couponCode, $wallet_amount, '', $totalTime, $selectedCurrencyCode, $convertionRate, $end_time, $doorStep_price, 1);
+        $BookingDataByPricesResult = $this->parseDataFromResponse($BookingDataByPrices);
+        $commissions = $this->calculateCommissions($BookingDataByPricesResult['base_price_commission']);
+        // Clean the times to remove any extra spaces or invisible characters
+        $cleanStartTime = trim($request->start_time);
+        $cleanEndTime = trim($request->end_time);
+        $startDatetime = Carbon::createFromFormat('Y-m-d h:i A', $request->check_in . ' ' . $cleanStartTime)
+            ->format('Y-m-d H:i:s');
+        $endDatetime = Carbon::createFromFormat('Y-m-d h:i A', $request->check_out . ' ' . $cleanEndTime)
+            ->format('Y-m-d H:i:s');
+        $bufferMinutes = 30;
+        if (!checkAvailability($itemId, $startDatetime, $endDatetime, null, $bufferMinutes)) {
+
+            return $this->addErrorResponse(409, trans('front.dates_are_not_available'), '');
+
+
+        }
+
+        $booking = Booking::create([
+            'itemid' => $request->item_id,
+            'check_in' => $startDatetime,
+            'check_out' => $endDatetime,
+            'start_time' => $request->start_time,
+            'end_time' => $request->end_time,
+            'status' => 'Pending',
+            'currency_code' => $request->currency_code ?? 'USD',
+            'module' => $request->module_id,
+            'userid' => $userid,
+            'host_id' => $hostid,
+            'payment_status' => 'notpaid',
+            'cancellation_reasion' => '',
+            'cancelled_by' => '',
+            'item_data' => json_encode(
+                Item::where('id', $request->item_id)
+                    ->get()
+                    ->map(fn($i) => $this->formatItemData($i))
+            ),
+            'total' => $this->convertFormattedNumber($BookingDataByPricesResult['totalPrice']),
+            'amount_to_pay' => $this->convertFormattedNumber($BookingDataByPricesResult['gross_price']),
+            'payment_method' => '',
+            'transaction' => ''
+        ]);
+
+        $booking->bookingFinance()->create([
+            'total_day' => $this->convertFormattedNumber($BookingDataByPricesResult['total_days']),
+            'per_day' => $this->convertFormattedNumber($BookingDataByPricesResult['price_per_day']),
+            'base_price' => $this->convertFormattedNumber($BookingDataByPricesResult['price_before_discount']),
+            'security_money' => $this->convertFormattedNumber($BookingDataByPricesResult['security_deposit'] ?? 0),
+            'doorstep_price' => $this->convertFormattedNumber($BookingDataByPricesResult['doorStep_price'] ?? 0),
+            'iva_tax' => $this->convertFormattedNumber($BookingDataByPricesResult['tax']),
+            'coupon_code' => $couponCode,
+            'coupon_discount' => $this->convertFormattedNumber($BookingDataByPricesResult['coupon_discount']),
+            'discount_price' => $this->convertFormattedNumber($BookingDataByPricesResult['discount_price']),
+            'wall_amt' => $this->convertFormattedNumber($BookingDataByPricesResult['wallet_amount']),
+            'admin_commission' => $commissions['admin_commission'],
+            'vendor_commission' => $commissions['vendor_commission'],
+            'vendor_commission_given' => 0,
+            'cancelled_charge' => 0,
+            'deductedAmount' => 0,
+            'refundableAmount' => 0,
+        ]);
+
+
+        $bookingExtension = new BookingExtension();
+        $bookingExtension->booking_id = $booking->id;
+        $bookingExtension->is_item_delivered = 0;
+        $bookingExtension->is_item_received = 0;
+        $bookingExtension->is_item_returned = 0;
+        $bookingExtension->pick_otp = $this->createPickDropOTP();
+        $bookingExtension->drop_otp = $this->createPickDropOTP();
+        $bookingExtension->doorStep_price = $this->convertFormattedNumber($BookingDataByPricesResult['doorStep_price']);
+        $bookingExtension->doorStep_address = json_encode($addressData);
+        $bookingExtension->save();
+
+        if ($BookingDataByPricesResult) {
+
+            $lastDate = end($BookingDataByPricesResult['prices'])['date'];
+
+            foreach ($BookingDataByPricesResult['prices'] as $dateData) {
+                $date = $dateData['date'];
+                $status = $dateData['status'];
+                $price = $dateData['price'];
+                $endTimes = Carbon::createFromFormat('H:i A', $end_time);
+                $comparisonTime = Carbon::createFromTime(23, 30, 0);
+
+                if ($date === $lastDate && !empty($totalTime) && $endTimes->lessThan($comparisonTime)) {
+                    continue;
+                }
+                $itemDate = ItemDate::firstOrNew([
+                    'item_id' => $itemId,
+                    'date' => $date,
+                ]);
+                $itemDate->status = 'Not available';
+                $itemDate->booking_id = $booking->id;
+                $itemDate->price = $price;
+                $itemDate->module = $module;
+                $itemDate->save();
+            }
+        }
+
+        if ($BookingDataByPricesResult['wallet_amount'] > 0) {
+            $text = "Debit for booking #" . $booking->id;
+            $this->addWalletTransaction($userid, $BookingDataByPricesResult['wallet_amount'], 'debit', $text);
+        }
+        if ($BookingDataByPricesResult['gross_price'] < 1) {
+            $booking->payment_status = 'paid';
+            $booking->payment_method = 'wallet';
+            $booking->save();
+            $responseData = [
+                'booking_id' => $booking->id,
+                'status' => $booking->status,
+                'payment_url' => route('payment_success', ['booking' => $booking->id]),
+            ];
+            return $this->addSuccessResponse(200, trans('front.booked_succesfully'), $responseData);
+        }
+        if ($request->onlinepayment == 'Inactive') {
+            $booking->payment_status = 'paid';
+            $booking->payment_method = 'offline';
+            $booking->save();
+            $template_id = 14;
+            $valuesArray = array();
+            $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+            $dataVal['message_key'] = $booking;
+            $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+            $responseData = [
+                'booking_id' => $booking->id,
+                'status' => $booking->status,
+                'payment_url' => route('payment_success', ['booking' => $booking->id]),
+            ];
+            return $this->addSuccessResponse(200, trans('front.booked_succesfully'), $responseData);
+        }
+
+        $responseData = [
+            'booking_id' => $booking->id,
+            'status' => $booking->status,
+            'payment_url' => route('payment_methods', ['booking' => $booking->id]),
+        ];
+        return $this->addSuccessResponse(200, trans('front.booked_succesfully'), $responseData);
+
+        try {
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    private function calculateCommissions($basePrice)
+    {
+
+        $basePrice = str_replace(',', '', $basePrice);
+        $adminCommission = ($basePrice * $this->getGeneralSettingValue('feesetup_admin_commission') / 100);
+        $vendorCommission = ($basePrice) - $adminCommission;
+
+        return [
+            'admin_commission' => $adminCommission,
+            'vendor_commission' => $vendorCommission,
+        ];
+    }
+
+    public function bookingRecord(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'type' => 'required',
+                'token' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return $this->errorComputing($validator);
+            }
+
+            $limit = $request->input('limit', 10);
+            $offset = $request->input('offset', 0);
+
+            $user_id = $this->checkUserByToken($request->token);
+            if (!$user_id) {
+                return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+            }
+
+            $module = $this->getModuleIdOrDefault($request);
+            $upcomingType = $request->type;
+            $today = Carbon::now()->format('Y-m-d');
+            $currentTime = Carbon::now()->format('H:i:s');
+
+            $bookingsQuery = Booking::where('userid', $user_id)
+                ->where('payment_status', 'paid')
+                ->where('module', $module)
+                ->with(['extension', 'host'])
+                ->leftJoin('booking_extensions', 'bookings.id', '=', 'booking_extensions.booking_id')
+                ->leftJoin('booking_finance', 'bookings.id', '=', 'booking_finance.booking_id')
+                ->select(
+                    'bookings.*',
+                    'booking_extensions.is_item_delivered',
+                    'booking_extensions.is_item_received',
+                    'booking_extensions.is_item_returned',
+                    'booking_extensions.doorStep_address',
+                    'booking_finance.total_day',
+                    'booking_finance.per_day',
+                    'booking_finance.base_price',
+                    'booking_finance.doorstep_price',
+                    'booking_finance.security_money',
+                    'booking_finance.iva_tax',
+                    'booking_finance.coupon_code',
+                    'booking_finance.coupon_discount',
+                    'booking_finance.discount_price',
+                    'booking_finance.cancelled_charge'
+                );
+
+            $statusFilter = [
+                'upcoming' => function ($query) use ($today) {
+                    $query->where('check_in', '>=', $today)
+                        ->whereNotIn('bookings.status', ['Cancelled', 'Declined', 'Completed'])
+                        ->where(function ($subQuery) {
+                            $subQuery->whereNull('booking_extensions.is_item_received')
+                                ->orWhere('booking_extensions.is_item_received', '!=', 1);
+                        });
+                },
+                'ongoing' => function ($query) {
+                    $query->whereNotIn('bookings.status', ['Cancelled', 'Declined', 'Completed'])
+                        ->where('booking_extensions.is_item_received', 1);
+                },
+                'Cancelled' => function ($query) use ($today) {
+                    $query->where('check_in', '>', $today)
+                        ->whereIn('bookings.status', ['Cancelled', 'Declined']);
+                },
+                'previous' => function ($query) use ($today, $currentTime) {
+                    $query->where(function ($q) use ($today, $currentTime) {
+                        $q->where('check_out', '<', $today)
+                            ->orWhere(function ($sub) use ($today, $currentTime) {
+                                $sub->where('check_out', '=', $today)
+                                    ->whereRaw("STR_TO_DATE(end_time, '%H:%i:%s') <= ?", [$currentTime]);
+                            })
+                            ->orWhere('booking_extensions.is_item_returned', 1);
+                    });
+                }
+            ];
+
+            if (!isset($statusFilter[$upcomingType])) {
+                return $this->addErrorResponse(400, trans('front.invalid_booking_type'), '');
+            }
+
+            $bookings = $bookingsQuery
+                ->where($statusFilter[$upcomingType])
+                ->orderByDesc('id')
+                ->skip($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($booking) use ($today, $currentTime, $upcomingType) {
+
+                    // Handle reviews
+                    $review = Review::where('bookingid', $booking->id)->where('guest_rating', '>', 0)->first();
+                    $booking['review_status'] = $review ? '1' : '0';
+                    $booking['review_rating'] = $review->guest_rating ?? '';
+                    $booking['review'] = $review->guest_message ?? '';
+
+                    // Host data
+                    if ($booking->host) {
+                        $booking['host_name'] = $booking->host->first_name . ' ' . $booking->host->last_name;
+                        $booking['host_number'] = $booking->host->phone;
+                        $booking['host_email'] = $booking->host->email;
+                        $booking['host_phone_country'] = $booking->host->phone_country;
+                    }
+
+                    // Item data
+                    $itemData = json_decode($booking->item_data, true);
+                    $booking['item_title'] = $itemData[0]['name'] ?? ($booking->item_title ?? '');
+                    $booking['total_day'] = $booking->total_day;
+                    $booking['per_day'] = $booking->per_day;
+                    $booking['payment_method'] = $booking->payment_method === 'offline' ? 'Cash' : $booking->payment_method;
+                    $booking['booking_meta'] = json_encode(['start_time' => '17:30 PM', 'end_time' => '10:30 PM']);
+
+
+                    $booking['per_day'] = formatCurrency($booking->per_day ?? 0);
+                    $booking['base_price'] = formatCurrency($booking->base_price ?? 0);
+                    $booking['doorstep_price'] = formatCurrency($booking->doorstep_price ?? 0);
+                    $booking['security_money'] = formatCurrency($booking->security_money ?? 0);
+                    $booking['iva_tax'] = formatCurrency($booking->iva_tax ?? 0);
+                    $booking['coupon_discount'] = formatCurrency($booking->coupon_discount ?? 0);
+                    $booking['discount_price'] = formatCurrency($booking->discount_price ?? 0);
+                    $booking['cancelled_charge'] = formatCurrency($booking->cancelled_charge ?? 0);
+                    $booking['total'] = formatCurrency($booking->total ?? 0);
+                    $booking['amount_to_pay'] = formatCurrency($booking->amount_to_pay ?? 0);
+
+                    if ($booking->extension) {
+                        $booking['doorStep_price'] = formatCurrency($booking->extension->doorStep_price ?? 0);
+
+                        if ($upcomingType === 'upcoming') {
+                            $isItemReceived = $booking->extension->is_item_received;
+                            $isItemDelivered = $booking->extension->is_item_delivered;
+
+                            $checkInDate = DateFormat::toDateString($booking->check_in);
+                            $todayDate = DateFormat::toDateString(Carbon::now());
+
+                            $booking['is_received_button'] = ($checkInDate === $todayDate && $isItemReceived == 0 && $isItemDelivered == 1) ? 'yes' : 'no';
+
+                        }
+
+                        if ($upcomingType === 'previous') {
+                            if ($booking->extension->is_item_received == 1 && $booking->extension->is_item_returned != 1) {
+                                return null; // skip if item received but not returned
+                            }
+                            $booking['is_received_button'] = ($booking->extension->is_item_received == 0) ? 'yes' : 'no';
+                        }
+                    }
+
+                    unset($booking->extension, $booking->host);
+                    return $booking;
+                })->filter()->values();
+
+            $nextOffset = $bookings->isEmpty() ? -1 : ($offset + $bookings->count());
+
+            $responseData = [
+                'Bookings' => $bookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            $successMessage = match ($upcomingType) {
+                'upcoming' => trans('front.upcoming_bookings_is'),
+                'ongoing' => trans('front.ongoing_bookings_is'),
+                'previous' => trans('front.previous_bookings_is'),
+                default => trans('front.bookings_fetched'),
+            };
+
+            return $this->addSuccessResponse(200, $successMessage, $responseData);
+
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    public function bookingRecord_BK(Request $request)
+    {
+        // try {
+        $validator = Validator::make($request->all(), [
+            'type' => 'required',
+            'token' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+
+        $user_id = $this->checkUserByToken($request->token);
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+        $module = $this->getModuleIdOrDefault($request);
+        $upcomingType = $request->type;
+        $bookingsQuery = Booking::where('userid', $user_id)
+            ->where('payment_status', 'paid')
+            ->where('module', $module)
+            ->leftJoin('booking_extensions', 'bookings.id', '=', 'booking_extensions.booking_id')
+            ->leftJoin('booking_finance', 'bookings.id', '=', 'booking_finance.booking_id')
+            ->select(
+                'bookings.*',
+
+                // Booking Extensions
+                'booking_extensions.is_item_delivered',
+                'booking_extensions.is_item_received',
+                'booking_extensions.is_item_returned',
+                'booking_extensions.doorStep_address',
+
+                // Booking Finance
+                'booking_finance.total_day',
+                'booking_finance.per_day',
+                'booking_finance.base_price',
+                'booking_finance.doorstep_price',
+                'booking_finance.security_money',
+                'booking_finance.iva_tax',
+                'booking_finance.coupon_code',
+                'booking_finance.coupon_discount',
+                'booking_finance.discount_price',
+                'booking_finance.cancelled_charge',
+                'booking_finance.cancelled_charge',
+            );
+
+
+        if ($upcomingType === 'upcoming') {
+
+            $upcomingBookings = $bookingsQuery->where('check_in', '>=', Carbon::now()->format('Y-m-d'))->whereNotIn('bookings.status', ['Cancelled', 'Declined', 'Completed'])
+                ->where(function ($query) {
+                    $query->whereNull('booking_extensions.is_item_received')
+                        ->orWhere('booking_extensions.is_item_received', '!=', 1);
+                })->orderBy('id', 'desc')->skip($offset)->take($limit)->get()
+                ->map(function ($upcomingBookings) {
+
+                    $currentTime = Carbon::now('Europe/Istanbul')->format('H:i:s');
+                    if ($upcomingBookings->check_out == Carbon::now()->format('Y-m-d') && Carbon::parse($upcomingBookings->end_time)->lte($currentTime)) {
+
+
+                        return null;
+                    }
+                    $review = Review::where('bookingid', $upcomingBookings->id)->where('guest_rating', '>', 0)->first();
+
+                    if ($review) {
+                        $upcomingBookings['review_status'] = '1';
+                        $upcomingBookings['review_rating'] = $review->guest_rating;
+                        $upcomingBookings['review'] = $review->guest_message;
+                    } else {
+                        $upcomingBookings['review_status'] = '0';
+                        $upcomingBookings['review_rating'] = '';
+                        $upcomingBookings['review'] = '';
+                    }
+                    $user = AppUser::where('id', $upcomingBookings->host_id)->first();
+                    if ($user != null) {
+                        $upcomingBookings['host_name'] = $user->first_name . " " . $user->last_name;
+                        $upcomingBookings['host_number'] = $user->phone;
+                        $upcomingBookings['host_email'] = $user->email;
+                        $upcomingBookings['host_phone_country'] = $user->phone_country;
+                    }
+                    $bookingExtension = $upcomingBookings->extension;
+                    $itemData = json_decode($upcomingBookings->item_data, true);
+                    $upcomingBookings['item_title'] = $itemData[0]['name'] ?? ($booking->item_title ?? '');
+                    $upcomingBookings['total_day'] = $upcomingBookings->total_day;
+                    $upcomingBookings['per_day'] = $upcomingBookings->per_day;
+                    $upcomingBookings['book_for'] = '';
+                    $upcomingBookings['cleaning_charge'] = '';
+                    $upcomingBookings['payment_method'] = $upcomingBookings->payment_method === 'offline' ? 'Cash' : $upcomingBookings->payment_method;
+
+
+                    if ($bookingExtension) {
+
+                        $isItemReceived = $bookingExtension->is_item_received;
+                        $isItemDelivered = $bookingExtension->is_item_delivered;
+
+
+                        if ($upcomingBookings->check_in == Carbon::now()->format('Y-m-d') && $isItemReceived === 0 && $isItemDelivered === 1) {
+                            $upcomingBookings['is_received_button'] = 'yes';
+                        } else {
+                            $upcomingBookings['is_received_button'] = 'no';
+                        }
+                    }
+                    $upcomingBookings['booking_meta'] = json_encode(array("start_time" => "17:30 PM", "end_time" => "10:30 PM"));
+                    unset($upcomingBookings->extension);
+                    return $upcomingBookings;
+                })
+                ->filter()->values();
+
+            $nextOffset = $offset + count($upcomingBookings);
+
+            if ($upcomingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $upcomingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.upcoming_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'ongoing') {
+            $ongoingBookings = $bookingsQuery
+                ->whereNotIn('bookings.status', ['Cancelled', 'Declined', 'Completed'])
+                ->where('booking_extensions.is_item_received', 1)
+                ->orderBy('id', 'desc')
+                ->skip($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($ongoingBookings) {
+                    $currentTime = Carbon::now('Europe/Istanbul')->format('H:i:s');
+                    $review = Review::where('bookingid', $ongoingBookings->id)->where('guest_rating', '>', 0)->first();
+                    $ongoingBookings['review_status'] = $review ? '1' : '0';
+                    $ongoingBookings['review_rating'] = $review ? $review->guest_rating : '';
+                    $ongoingBookings['review'] = $review ? $review->guest_message : '';
+
+                    $user = AppUser::where('id', $ongoingBookings->host_id)->first();
+                    if ($user) {
+                        $ongoingBookings['host_name'] = $user->first_name . " " . $user->last_name;
+                        $ongoingBookings['host_number'] = $user->phone;
+                        $ongoingBookings['host_email'] = $user->email;
+                        $ongoingBookings['host_phone_country'] = $user->phone_country;
+                    }
+
+                    $bookingExtension = $ongoingBookings->extension;
+                    if ($bookingExtension) {
+                        $ongoingBookings['doorStep_price'] = $bookingExtension->doorStep_price ?? 0;
+                    }
+
+                    $ongoingBookings['booking_meta'] = json_encode(["start_time" => "17:30 PM", "end_time" => "10:30 PM"]);
+                    unset($ongoingBookings->extension);
+                    return $ongoingBookings;
+                })->filter()->values();
+
+            $nextOffset = $offset + count($ongoingBookings);
+            if ($ongoingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $ongoingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.ongoing_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'Cancelled') {
+
+            $upcomingBookings = $bookingsQuery->where('check_in', '>', Carbon::now()->format('Y-m-d'))->whereIn('bookings.status', ['Cancelled', 'Declined'])->orderBy('id', 'desc')->skip($offset)->take($limit)->get()
+                ->map(function ($items) {
+                    $user = AppUser::where('id', $items->host_id)->first();
+                    if ($user != null) {
+                        $items['host_name'] = $user->first_name . " " . $user->last_name;
+                        $items['host_number'] = $user->phone;
+                        $items['host_email'] = $user->email;
+                        $items['host_phone_country'] = $user->phone_country;
+                    }
+                    $bookingExtension = $items->extension;
+
+
+                    if ($bookingExtension) {
+
+                        $items['doorStep_price'] = isset($bookingExtension->doorStep_price) ? $bookingExtension->doorStep_price : 0;
+                    }
+                    unset($items->extension);
+                    return $items;
+                });
+            $nextOffset = $offset + count($upcomingBookings);
+
+            if ($upcomingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $upcomingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.upcoming_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'previous') {
+            $previousBookings = $bookingsQuery->where(function ($query) {
+                $query->where('check_out', '<', Carbon::now('Europe/Istanbul')->format('Y-m-d'))
+                    ->orWhere(function ($subQuery) {
+                        $subQuery->where('check_out', '=', Carbon::now('Europe/Istanbul')->format('Y-m-d'))
+                            ->whereRaw("STR_TO_DATE(end_time, '%h:%i %p') <= ?", [Carbon::now('Europe/Istanbul')->format('H:i:s')]);
+                    })->orWhere('booking_extensions.is_item_returned', 1);
+            })->orderBy('id', 'desc')->skip($offset)->take($limit)->get()
+                ->map(function ($previousBookings) {
+
+                    if ($previousBookings->extension->is_item_received == 1 && $previousBookings->extension->is_item_returned != 1) {
+                        return null; // Remove from results
+                    }
+
+                    $review = Review::where('bookingid', $previousBookings->id)->where('guest_rating', '>', 0)->first();
+                    if ($review) {
+                        $previousBookings['review_status'] = '1';
+                        $previousBookings['review_rating'] = $review->guest_rating;
+                        $previousBookings['review'] = $review->guest_message;
+                    } else {
+                        $previousBookings['review_status'] = '0';
+                        $previousBookings['review_rating'] = '';
+                        $previousBookings['review'] = '';
+                    }
+                    $user = AppUser::where('id', $previousBookings->host_id)->first();
+                    if ($user != null) {
+                        $previousBookings['host_name'] = $user->first_name . " " . $user->last_name;
+                        $previousBookings['host_number'] = $user->phone;
+                        $previousBookings['host_email'] = $user->email;
+                        $previousBookings['host_phone_country'] = $user->phone_country;
+                    }
+                    $bookingExtension = $previousBookings->extension;
+
+
+                    if ($bookingExtension) {
+
+                        $isItemReceived = $bookingExtension->is_item_received;
+                        $previousBookings['doorStep_price'] = isset($bookingExtension->doorStep_price) ? $bookingExtension->doorStep_price : 0;
+
+                        if ($previousBookings->isItemReceived === 0) {
+                            $previousBookings['is_received_button'] = 'yes';
+                        } else {
+                            $previousBookings['is_received_button'] = 'no';
+                        }
+                    }
+
+                    unset($previousBookings->extension);
+                    return $previousBookings;
+                })->filter()->values();
+            $nextOffset = $offset + count($previousBookings);
+
+            if ($previousBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $previousBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.previous_bookings_is'), $responseData);
+        } else {
+            return $this->addErrorResponse(500, trans('front.invalid_booking_type'), '');
+        }
+        try {
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    public function itemBookingDate(Request $request)
+    {
+        // try {
+        $validator = Validator::make($request->all(), [
+            'id' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse(500, $validator->errors()->first());
+        }
+
+        $upcomingBookings = Booking::where('itemid', $request->id)
+            ->where('check_in', '>', Carbon::now())
+            ->whereIn('status', ['pending', 'approved'])
+            ->get();
+
+        $selectedFields = $upcomingBookings->map(function ($booking) {
+            return [
+                'check_in' => $booking->check_in,
+                'check_out' => Carbon::parse($booking->check_out)->subDay()->toDateString(),
+            ];
+        });
+
+        $itemDates = ItemDate::where('item_id', $request->id)->where('status', 'Not available')->get();
+
+        foreach ($itemDates as $date) {
+
+            // Add Not Available date information to the notAvailableDates array
+            $selectedFields[] = [
+                'check_in' => $date->date,
+                'check_out' => $date->date,
+            ];
+        }
+        //
+
+        $weekdays = $this->getMissingDays($request->id);
+
+        $currentDate = new DateTime();
+        if (!empty($weekdays)) {
+            for ($i = 0; $i < 4; $i++) {
+
+                $firstDayOfMonth = new DateTime($currentDate->format('Y-m-01'));
+                if ($firstDayOfMonth < $currentDate) {
+                    $firstDayOfMonth = clone $currentDate;
+                }
+                while ($firstDayOfMonth->format('m') === $currentDate->format('m')) {
+                    $currentDayName = $firstDayOfMonth->format('l');
+                    if (in_array($currentDayName, $weekdays)) {
+
+                        if ($firstDayOfMonth >= $currentDate) {
+                            $selectedFields[] = [
+                                'check_in' => $firstDayOfMonth->format('Y-m-d'),
+                                'check_out' => $firstDayOfMonth->format('Y-m-d'),
+                            ];
+                        }
+                    }
+                    $firstDayOfMonth->modify('+1 day');
+                }
+                $currentDate->modify('first day of next month');
+            }
+        }
+
+        return $this->successResponse(200, trans('front.itemBookingDate'), ['itemBookingDate' => $selectedFields]);
+        try {
+        } catch (\Exception $e) {
+            return $this->errorResponse(500, trans('front.something_wrong'));
+        }
+    }
+    public function bookingpaymentsuccess(Request $request)
+    {
+        // try {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorResponse(500, $validator->errors()->first());
+        }
+
+        $booking_payment_status = Booking::where('id', $request->booking_id)->where('payment_status', 'Paid')->first();
+
+        if ($booking_payment_status) {
+            return $this->successResponse(200, trans('front.bookingpayment'), ['bookingpayment' => 'Paid']);
+        }
+        $booking_payment_status = Booking::where('id', $request->booking_id)->delete();
+
+        ItemDate::where('item_id', $booking_payment_status->itemid)->where('booking_id', $request->booking_id)
+            ->update([
+                'status' => 'Available',
+            ]);
+
+        return $this->successResponse(200, trans('front.bookingpayment'), ['bookingpayment' => 'Fail']);
+        try {
+        } catch (\Exception $e) {
+            return $this->errorResponse(500, trans('front.something_wrong'));
+        }
+    }
+
+    public function vendorbookingRecord(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'type' => 'required',
+            'token' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+
+        $user_id = $this->checkUserByToken($request->token);
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $upcomingType = $request->type;
+        $module = $this->getModuleIdOrDefault($request);
+
+        $bookingsQuery = Booking::where('host_id', $user_id)
+            ->where('payment_status', 'paid')
+            ->where('module', $module)
+            ->leftJoin('booking_extensions', 'bookings.id', '=', 'booking_extensions.booking_id')
+            ->leftJoin('booking_finance', 'bookings.id', '=', 'booking_finance.booking_id')
+            ->select(
+                'bookings.*',
+                'booking_extensions.drop_otp',
+                'booking_extensions.pick_otp',
+                'booking_extensions.is_item_delivered',
+                'booking_extensions.is_item_received',
+                'booking_extensions.is_item_returned',
+                'booking_extensions.doorStep_address',
+                'booking_extensions.doorStep_price',
+                'booking_finance.total_day',
+                'booking_finance.per_day',
+                'booking_finance.base_price',
+                'booking_finance.doorstep_price',
+                'booking_finance.security_money',
+                'booking_finance.iva_tax',
+                'booking_finance.coupon_code',
+                'booking_finance.coupon_discount',
+                'booking_finance.discount_price',
+                'booking_finance.cancelled_charge'
+            );
+
+        $nowDate = DateFormat::toDateString(Carbon::now());
+        $nowTime = Carbon::now('Asia/Kolkata')->format('H:i:s');
+
+        switch ($upcomingType) {
+            case 'upcoming':
+                $bookings = $bookingsQuery
+                    ->whereDate('check_in', '>=', Carbon::now()->toDateString())
+                    ->whereNotIn('status', ['Cancelled', 'Declined', 'Completed'])
+                    ->where(function ($query) {
+                        $query->whereNull('booking_extensions.is_item_received')
+                            ->orWhere('booking_extensions.is_item_received', '!=', 1);
+                    });
+                $responseKey = 'vendor_upcoming_bookings_is';
+                break;
+
+            case 'ongoing':
+                $bookings = $bookingsQuery
+                    ->whereNotIn('status', ['Cancelled', 'Declined', 'Completed'])
+                    ->where('booking_extensions.is_item_received', 1);
+                $responseKey = 'vendor_ongoing_bookings_is';
+                break;
+
+            case 'Cancelled':
+                $bookings = $bookingsQuery
+                    ->whereDate('check_in', '>', Carbon::now()->toDateString())
+                    ->whereIn('status', ['Cancelled', 'Declined']);
+                $responseKey = 'vendor_upcoming_bookings_is';
+                break;
+
+            case 'previous':
+                $bookings = $bookingsQuery->where(function ($query) use ($nowDate, $nowTime) {
+                    $query->where('check_out', '<', $nowDate)
+                        ->orWhere(function ($subQuery) use ($nowDate, $nowTime) {
+                            $subQuery->whereDate('check_out', '=', $nowDate)
+                                ->whereRaw("STR_TO_DATE(end_time, '%h:%i %p') <= ?", [$nowTime]);
+                        })
+                        ->orWhere('booking_extensions.is_item_returned', 1);
+                });
+                $responseKey = 'vendor_previous_bookings_is';
+                break;
+
+            default:
+                return $this->addErrorResponse(500, trans('front.invalid_booking_type'), '');
+        }
+
+        $results = $bookings->orderByDesc('id')
+            ->skip($offset)
+            ->take($limit)
+            ->get()
+            ->map(fn($item) => $this->transformBooking($item, $upcomingType))
+            ->filter()
+            ->values();
+
+        $nextOffset = $results->isEmpty() ? -1 : $offset + $results->count();
+
+        return $this->addSuccessResponse(200, trans("global.$responseKey"), [
+            'Bookings' => $results,
+            'offset' => $nextOffset,
+            'limit' => $limit,
+        ]);
+    }
+    private function transformBooking($item, $type)
+    {
+        $currentDate = DateFormat::toDateString(Carbon::now());
+        $currentTime = Carbon::now('Asia/Kolkata')->format('H:i:s');
+
+        if ($item->check_out == $currentDate && Carbon::parse($item->end_time)->lte($currentTime)) {
+            return null;
+        }
+
+        $user = AppUser::find($item->userid);
+        $item['user_name'] = $user ? "{$user->first_name} {$user->last_name}" : null;
+        $item['user_number'] = $user->phone ?? null;
+        $item['user_email'] = $user->email ?? null;
+        $item['user_phone_country'] = $user->phone_country ?? null;
+
+        $itemData = json_decode($item->item_data, true);
+        $item['item_title'] = $itemData[0]['name'] ?? $item->item_title ?? '';
+        $item['total_day'] = $item->total_day;
+        $item['per_day'] = $item->per_day;
+        $item['book_for'] = '';
+        $item['cleaning_charge'] = '';
+        $item['payment_method'] = $item->payment_method === 'offline' ? 'Cash' : $item->payment_method;
+
+        $item['per_day'] = formatCurrency($item->per_day ?? 0);
+        $item['base_price'] = formatCurrency($item->base_price ?? 0);
+        $item['doorstep_price'] = formatCurrency($item->doorstep_price ?? 0);
+        $item['security_money'] = formatCurrency($item->security_money ?? 0);
+        $item['iva_tax'] = formatCurrency($item->iva_tax ?? 0);
+        $item['coupon_discount'] = formatCurrency($item->coupon_discount ?? 0);
+        $item['discount_price'] = formatCurrency($item->discount_price ?? 0);
+        $item['cancelled_charge'] = formatCurrency($item->cancelled_charge ?? 0);
+        $item['total'] = formatCurrency($item->total ?? 0);
+        $item['amount_to_pay'] = formatCurrency($item->amount_to_pay ?? 0);
+
+        $checkInDate = DateFormat::toDateString($item->check_in);
+        $item['is_item_delivered_button'] = ($checkInDate === $currentDate && $item->is_item_received == 0 && $item->is_item_delivered == 0) ? 'yes' : 'no';
+
+        if ($type === 'previous') {
+            $item['is_item_delivered_button'] = ($item->is_item_received == 0 && $item->is_item_delivered == 0) ? 'yes' : 'no';
+            $item['is_item_returned_button'] = ($item->is_item_returned == 0 && $item->is_item_delivered == 1) ? 'yes' : 'no';
+
+            $review = Review::where('bookingid', $item->id)->where('host_rating', '>', 0)->first();
+            $item['review_status'] = $review ? '1' : '0';
+            $item['review_rating'] = $review->host_rating ?? '';
+            $item['review'] = $review->host_message ?? '';
+        }
+
+        unset($item->extension);
+        return $item;
+    }
+
+    public function vendorbookingRecord_bk(Request $request)
+    {
+
+        // try {
+        $validator = Validator::make($request->all(), [
+            'type' => 'required',
+            'token' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+
+        $user_id = $this->checkUserByToken($request->token);
+
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $upcomingType = $request->type;
+        $module = $this->getModuleIdOrDefault($request);
+        $bookingsQuery = Booking::where('host_id', $user_id)
+            ->where('payment_status', 'paid')
+            ->where('module', $module)
+            ->leftJoin('booking_extensions', 'bookings.id', '=', 'booking_extensions.booking_id')
+            ->leftJoin('booking_finance', 'bookings.id', '=', 'booking_finance.booking_id')
+            ->select(
+                'bookings.*',
+
+                // Booking Extensions
+                'booking_extensions.drop_otp',
+                'booking_extensions.pick_otp',
+                'booking_extensions.is_item_delivered',
+                'booking_extensions.is_item_received',
+                'booking_extensions.is_item_returned',
+                'booking_extensions.doorStep_address',
+                'booking_extensions.doorStep_price',
+
+                // Booking Finance (only specified fields)
+                'booking_finance.total_day',
+                'booking_finance.per_day',
+                'booking_finance.base_price',
+                'booking_finance.doorstep_price',
+                'booking_finance.security_money',
+                'booking_finance.iva_tax',
+                'booking_finance.coupon_code',
+                'booking_finance.coupon_discount',
+                'booking_finance.discount_price',
+                'booking_finance.cancelled_charge'
+            );
+
+
+
+        if ($upcomingType === 'upcoming') {
+            $upcomingBookings = $bookingsQuery->where('check_in', '>=', Carbon::now()->format('Y-m-d'))->whereNotIn('status', ['Cancelled', 'Declined', 'Completed'])->where(function ($query) {
+                $query->whereNull('booking_extensions.is_item_received')
+                    ->orWhere('booking_extensions.is_item_received', '!=', 1);
+            })->orderBy('id', 'desc')->skip($offset)->take($limit)->get()->map(function ($items) {
+
+                $currentTime = Carbon::now('Europe/Istanbul')->format('H:i:s');
+                if ($items->check_out == Carbon::now()->format('Y-m-d') && Carbon::parse($items->end_time)->lte($currentTime)) {
+
+
+                    return null;  // Exclude this booking by returning null
+                }
+                $user = AppUser::where('id', $items->userid)->first();
+                if ($user) {
+                    $items['user_name'] = $user->first_name . " " . $user->last_name;
+                    $items['user_number'] = $user->phone;
+                    $items['user_email'] = $user->email;
+                    $items['user_phone_country'] = $user->phone_country;
+                } else {
+
+                    $items['user_name'] = null;
+                    $items['user_number'] = null;
+                    $items['user_email'] = null;
+                    $items['user_phone_country'] = null;
+                }
+
+                if (
+                    DateFormat::toDateString($items->check_in) === DateFormat::toDateString(Carbon::now())
+                    && $items->is_item_received === 0
+                    && $items->is_item_delivered === 0
+                ) {
+                    $items['is_item_delivered_button'] = 'yes';
+                } else {
+                    $items['is_item_delivered_button'] = 'no';
+                }
+
+                $itemData = json_decode($items->item_data, true);
+                $items['item_title'] = $itemData[0]['name'] ?? ($booking->item_title ?? '');
+                $items['total_day'] = $items->total_day;
+                $items['per_day'] = $items->per_day;
+                $items['book_for'] = '';
+                $items['cleaning_charge'] = '';
+                $items['payment_method'] = $items->payment_method === 'offline' ? 'Cash' : $items->payment_method;
+                unset($items->extension);
+                return $items;
+            })
+                ->filter()->values();
+            $nextOffset = $offset + count($upcomingBookings);
+
+            if ($upcomingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $upcomingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.vendor_upcoming_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'ongoing') {
+            $ongoingBookings = $bookingsQuery
+                ->whereNotIn('status', ['Cancelled', 'Declined', 'Completed'])
+                ->where('booking_extensions.is_item_received', 1)  // Only ongoing bookings where is_item_received is 1
+                ->orderBy('id', 'desc')
+                ->skip($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($items) {
+                    $currentTime = Carbon::now('Europe/Istanbul')->format('H:i:s');
+                    if ($items->check_out == Carbon::now()->format('Y-m-d') && Carbon::parse($items->end_time)->lte($currentTime)) {
+
+
+                        return null;  // Exclude this booking by returning null
+                    }
+                    $user = AppUser::where('id', $items->userid)->first();
+                    if ($user) {
+                        $items['user_name'] = $user->first_name . " " . $user->last_name;
+                        $items['user_number'] = $user->phone;
+                        $items['user_email'] = $user->email;
+                        $items['user_phone_country'] = $user->phone_country;
+                    } else {
+                        $items['user_name'] = null;
+                        $items['user_number'] = null;
+                        $items['user_email'] = null;
+                        $items['user_phone_country'] = null;
+                    }
+
+                    if ($items->check_in == Carbon::now()->format('Y-m-d') && $items->is_item_received === 0 && $items->is_item_delivered === 0) {
+                        $items['is_item_delivered_button'] = 'yes';
+                    } else {
+                        $items['is_item_delivered_button'] = 'no';
+                    }
+                    unset($items->extension);
+                    return $items;
+                })->filter()->values();
+
+            $nextOffset = $offset + count($ongoingBookings);
+
+            if ($ongoingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $ongoingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.vendor_ongoing_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'Cancelled') {
+            $upcomingBookings = $bookingsQuery->where('check_in', '>', Carbon::now()->format('Y-m-d'))->whereIn('status', ['Cancelled', 'Declined'])->orderBy('id', 'desc')->skip($offset)->take($limit)->get()->map(function ($items) {
+                $user = AppUser::where('id', $items->userid)->first();
+                if ($user) {
+                    $items['user_name'] = $user->first_name . " " . $user->last_name;
+                    $items['user_number'] = $user->phone;
+                    $items['user_email'] = $user->email;
+                    $items['user_phone_country'] = $user->phone_country;
+                } else {
+
+                    $items['user_name'] = null;
+                    $items['user_number'] = null;
+                    $items['user_email'] = null;
+                    $items['user_phone_country'] = null;
+                }
+                unset($items->extension);
+                return $items;
+            });
+            $nextOffset = $offset + count($upcomingBookings);
+
+            if ($upcomingBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $upcomingBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.vendor_upcoming_bookings_is'), $responseData);
+        } elseif ($upcomingType === 'previous') {
+            $previousBookings = $bookingsQuery->where(function ($query) {
+                $query->where('check_out', '<', Carbon::now('Europe/Istanbul')->format('Y-m-d'))
+                    ->orWhere(function ($subQuery) {
+                        $subQuery->where('check_out', '=', Carbon::now('Europe/Istanbul')->format('Y-m-d'))
+                            ->whereRaw("STR_TO_DATE(end_time, '%h:%i %p') <= ?", [Carbon::now('Europe/Istanbul')->format('H:i:s')]);
+                    })->orWhere('booking_extensions.is_item_returned', 1);
+            })->orderBy('id', 'desc')->skip($offset)->take($limit)->get()
+                ->map(function ($previousBookings) {
+
+                    if ($previousBookings->extension->is_item_received == 1 && $previousBookings->extension->is_item_returned != 1) {
+                        return null; // Remove from results
+                    }
+
+                    $review = Review::where('bookingid', $previousBookings->id)->where('host_rating', '>', 0)->first();
+                    if ($review) {
+                        $previousBookings['review_status'] = '1';
+                        $previousBookings['review_rating'] = $review->host_rating;
+                        $previousBookings['review'] = $review->host_message;
+                    } else {
+                        $previousBookings['review_status'] = '0';
+                        $previousBookings['review_rating'] = '';
+                        $previousBookings['review'] = '';
+                    }
+                    $user = AppUser::where('id', $previousBookings->userid)->first();
+                    if ($user) {
+                        $previousBookings['user_name'] = $user->first_name . " " . $user->last_name;
+                        $previousBookings['user_number'] = $user->phone;
+                        $previousBookings['user_email'] = $user->email;
+                        $previousBookings['user_phone_country'] = $user->phone_country;
+                    } else {
+
+                        $previousBookings['user_name'] = null;
+                        $previousBookings['user_number'] = null;
+                        $previousBookings['user_email'] = null;
+                        $previousBookings['user_phone_country'] = null;
+                    }
+                    if ($previousBookings->is_item_received === 0 && $previousBookings->is_item_delivered === 0) {
+                        $previousBookings['is_item_delivered_button'] = 'yes';
+                    } else {
+                        $previousBookings['is_item_delivered_button'] = 'no';
+                    }
+
+                    if ($previousBookings->is_item_returned === 0 && $previousBookings->is_item_delivered === 1) {
+                        $previousBookings['is_item_returned_button'] = 'yes';
+                    } else {
+                        $previousBookings['is_item_returned_button'] = 'no';
+                    }
+                    unset($previousBookings->extension);
+                    return $previousBookings;
+                })->filter()->values();
+            $nextOffset = $offset + count($previousBookings);
+
+            if ($previousBookings->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            $responseData = [
+                'Bookings' => $previousBookings,
+                'offset' => $nextOffset,
+                'limit' => $limit,
+            ];
+
+            return $this->addSuccessResponse(200, trans('front.vendor_previous_bookings_is'), $responseData);
+        } else {
+            return $this->addErrorResponse(500, trans('front.invalid_booking_type'), '');
+        }
+        try {
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+    public function cancelBookingByUser(Request $request)
+    {
+
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'token' => 'required|exists:app_users,token',
+            'cancellation_reasion' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $user = AppUser::where('token', $request->input('token'))->first();
+        if (!$user) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $orderCancellation = BookingCancellationReason::where('order_cancellation_id', $request->input('cancellation_reasion'))->first();
+        if (!$orderCancellation) {
+            return $this->errorResponse(500, trans('front.please_choose_cancellation_reason'));
+        }
+
+        $booking = Booking::where('id', $request->input('booking_id'))
+            ->where('userid', $user->id)
+            ->where('status', '<>', 'Cancelled')
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(500, trans('front.booking_not_found_or_not_editable'), '');
+        }
+
+        $refundableAmount = 0;
+        $deductedAmount = 0;
+
+        // Refund only if payment_status = paid AND payment_method != offline
+        if ($booking->payment_status === 'paid' && $booking->payment_method !== 'offline') {
+            $departureTime = Carbon::parse($booking->check_in);
+            $currentTime = Carbon::now();
+            $timeDifference = $departureTime->diffInHours($currentTime);
+
+            if ($currentTime >= $departureTime || $timeDifference == 0) {
+                $refundableAmount = 0;
+            } else {
+                if ($timeDifference <= 12) {
+                    $cancellationTime = 12;
+                } elseif ($timeDifference <= 24) {
+                    $cancellationTime = 24;
+                } else {
+                    $cancellationTime = 48;
+                }
+
+                $policy = CancellationPolicy::where('status', 1)
+                    ->where('cancellation_time', $cancellationTime)
+                    ->first();
+
+
+
+                if ($policy) {
+                    $refundableAmount = $booking->bookingFinance->vendor_commission + $booking->bookingFinance->iva_tax + $booking->bookingFinance->security_money + $booking->bookingFinance->doorstep_price;
+                    if ($policy->type === 'percent') {
+                        $deductedAmount = ($booking->bookingFinance->vendor_commission * ($policy->value / 100));
+                    }
+                    $refundableAmount -= $deductedAmount;
+                } else {
+                    $refundableAmount = 0;
+                }
+            }
+
+            if ($refundableAmount > 0) {
+                $transactionDescription = 'Cancellation refund for booking #' . $booking->id;
+                $this->addWalletTransaction(
+                    $user->id,
+                    $refundableAmount,
+                    'credit',
+                    $transactionDescription,
+                    $booking->currency_code
+                );
+            }
+
+            if ($deductedAmount > 0) {
+                $description = 'Vendor portion after cancellation by user for booking #' . $booking->id;
+                $this->addToVendorWallet(
+                    $booking->host_id,
+                    $deductedAmount,
+                    $booking->id,
+                    '0',
+                    $description
+                );
+            }
+        }
+
+        // Update booking status only
+        $booking->status = 'Cancelled';
+        $booking->cancelled_by = 'guest';
+        $booking->cancellation_reasion = $orderCancellation->reason;
+        $booking->save();
+
+        // Update booking_finance with cancellation data
+        BookingFinance::updateOrCreate(
+            ['booking_id' => $booking->id],
+            [
+
+                'refundableAmount' => $refundableAmount,
+                'deductedAmount' => $deductedAmount,
+            ]
+        );
+
+        $this->rollbackItemAvailability($booking->itemid, $booking->check_in, $booking->check_out);
+
+        $template_id = 22;
+        $valuesArray = $this->createNotificationArray(
+            $booking->userid,
+            $booking->host_id,
+            $booking->itemid,
+            $booking->id
+        );
+
+        $dataVal['message_key'] = $booking;
+
+        $this->sendAllNotifications(
+            $valuesArray,
+            $booking->userid,
+            $template_id,
+            $dataVal,
+            $booking->host_id
+        );
+
+        return $this->addSuccessResponse(200, trans('front.booking_cancelled_successfully'), '');
+    }
+
+    public function cancelBookingByUser_bk(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'booking_id' => 'required|exists:bookings,id',
+                'token' => 'required|exists:app_users,token',
+                'cancellation_reasion' => 'required',
+            ]);
+
+            if ($validator->fails()) {
+                return $this->errorComputing($validator);
+            }
+            $user = AppUser::where('token', $request->input('token'))->first();
+            if (!$user) {
+                return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+            }
+
+            $order_cancellation = BookingCancellationReason::where('order_cancellation_id', $request->input('cancellation_reasion'))->first();
+            if (!$order_cancellation) {
+                return $this->errorResponse(500, trans('front.please_choose_cancellation_reason'));
+            }
+
+            $bookingId = $request->input('booking_id');
+            $token = $request->input('token');
+            $userId = $user->id;
+
+            $booking = Booking::where('id', $bookingId)
+                ->where('userid', $userId)
+                ->where('status', '<>', 'Cancelled')
+                ->first();
+
+            if (!$booking) {
+                return $this->addErrorResponse(500, trans('front.booking_not_found_or_not_editable'), '');
+            }
+
+
+
+            if ($booking->payment_status == 'paid') {
+                $departureTime = Carbon::parse($booking->check_in);
+                $currentTime = Carbon::now();
+                $timeDifference = $departureTime->diffInHours($currentTime);
+                if ($currentTime >= $departureTime || $timeDifference == 0) {
+                    $refundableAmount = 0;
+                } else {
+                    if ($timeDifference <= 12) {
+                        $cancellationTime = 12;
+                    } elseif ($timeDifference > 12 && $timeDifference <= 24) {
+                        $cancellationTime = 24;
+                    } else {
+                        $cancellationTime = 48;
+                    }
+
+                    $policy = CancellationPolicy::where('status', 1)
+                        ->where('cancellation_time', $cancellationTime)
+                        ->first();
+
+                    if ($policy) {
+                        $deductedAmount = 0.00;
+                        $refundableAmount = $booking->vendor_commission;
+                        if ($policy->type === 'percent') {
+                            $deductedAmount = ($booking->vendor_commission * ($policy->value / 100));
+                        }
+                        $refundableAmount -= $deductedAmount;
+                    } else {
+                        $refundableAmount = 0;
+                    }
+                }
+            } else {
+                $refundableAmount = 0;
+            }
+
+
+            $transactionDescription = 'Cancellation refund for booking #' . $booking->id;
+            $this->addWalletTransaction($userId, $refundableAmount, 'credit', $transactionDescription, $booking->currency_code);
+
+            $description = 'Vendor portion after cancellation by user for booking  #' . $booking->id;
+            $this->addToVendorWallet($booking->host_id, $deductedAmount, $booking->id, '0', $description);
+
+            $booking->status = 'Cancelled';
+            $booking->cancelled_by = 'guest';
+            $booking->cancellation_reasion = $order_cancellation->reason;
+            $booking->deductedAmount = $deductedAmount;
+            $booking->refundableAmount = $refundableAmount;
+            $booking->save();
+            $this->rollbackItemAvailability($booking->itemid, $booking->check_in, $booking->check_out);
+            $template_id = 22;
+            $valuesArray = array();
+            $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+            $dataVal['message_key'] = $booking;
+            $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+
+            return $this->addSuccessResponse(200, trans('front.booking_cancelled_successfully'), '');
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+    public function cancelBookingByHost(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'token' => 'required|exists:app_users,token',
+            'cancellation_reasion' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $user = AppUser::where('token', $request->input('token'))->first();
+        if (!$user) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $orderCancellation = BookingCancellationReason::where('order_cancellation_id', $request->input('cancellation_reasion'))->first();
+        if (!$orderCancellation) {
+            return $this->errorResponse(500, trans('front.please_choose_cancellation_reason'));
+        }
+
+        $booking = Booking::where('id', $request->input('booking_id'))
+            ->where('host_id', $user->id)
+            ->where('status', '<>', 'Declined')
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(500, trans('front.booking_not_found_or_not_editable'), '');
+        }
+
+        $cancellationTimeLimit = Carbon::parse($booking->check_out)->subDay();
+        if (Carbon::now()->isAfter($cancellationTimeLimit)) {
+            return $this->addErrorResponse(500, trans('front.booking_cancellation_time_limit_exceeded'), '');
+        }
+
+        $refundableAmount = 0;
+        $deductedAmount = 0;
+
+        if ($booking->payment_status === 'paid' && $booking->payment_method !== 'offline') {
+            $refundableAmount = $booking->total;
+            $transactionDescription = 'Cancellation refund for booking #' . $booking->id;
+
+            $this->addWalletTransaction(
+                $booking->userid,
+                $refundableAmount,
+                'credit',
+                $transactionDescription,
+                $booking->currency_code
+            );
+        }
+
+        $booking->status = 'Declined';
+        $booking->save();
+        BookingFinance::updateOrCreate(
+            ['booking_id' => $booking->id],
+            [
+                'cancelled_by' => 'host',
+                'refundableAmount' => $refundableAmount,
+                'deductedAmount' => $deductedAmount,
+                'cancellation_reasion' => $orderCancellation->reason
+            ]
+        );
+
+        $this->rollbackItemAvailability($booking->itemid, $booking->check_in, $booking->check_out);
+
+        $template_id = 26;
+        $valuesArray = $this->createNotificationArray(
+            $booking->userid,
+            $booking->host_id,
+            $booking->itemid,
+            $booking->id
+        );
+        $dataVal['message_key'] = $booking;
+
+        $this->sendAllNotifications(
+            $valuesArray,
+            $booking->userid,
+            $template_id,
+            $dataVal,
+            $booking->host_id
+        );
+
+        return $this->addSuccessResponse(200, trans('front.booking_cancelled_successfully'), '');
+    }
+
+
+    public function confirmBookingByHost(Request $request)
+    {
+
+        // try {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'token' => 'required|exists:app_users,token',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+        $user = AppUser::where('token', $request->input('token'))->first();
+        if (!$user) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $bookingId = $request->input('booking_id');
+
+        $token = $request->input('token');
+        $userId = $user->id;
+
+        $booking = Booking::where('id', $bookingId)
+            ->where('host_id', $userId)
+            ->where('status', '<>', 'Confirmed')
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(500, trans('front.booking_not_found_or_not_editable'), '');
+        }
+        $bookingDate = Carbon::parse($booking->check_out);
+        if ($bookingDate->isBefore(Carbon::today())) {
+            return $this->addErrorResponse(500, trans('front.booking_confirmed_time_limit_exceeded'), '');
+        }
+
+        if ($booking->payment_status == 'paid') {
+            $deductedAmount = $booking->total - ($booking->total * 0.10);
+        } else {
+            $deductedAmount = 0;
+        }
+
+        $booking->status = 'Confirmed';
+        $booking->save();
+
+        $template_id = 18;
+        $valuesArray = array();
+        $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+        $dataVal['message_key'] = $booking;
+        $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+
+        try {
+            return $this->addSuccessResponse(200, trans('front.booking_confirmed_successfully'), '');
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    public function getCancellationPolicies(Request $request)
+    {
+        try {
+            $module = $this->getModuleIdOrDefault($request);
+            $cancellationPolicies = CancellationPolicy::where('status', 1)
+                ->where('module', $module)
+                ->get();
+
+            return $this->addSuccessResponse(200, trans('front.Result_found'), ['cancellation_policies' => $cancellationPolicies]);
+        } catch (\Exception $e) {
+            return $this->addErrorResponse(500, trans('front.ServerError_internal_server_error'), $e->getMessage());
+        }
+    }
+
+    public function distributeVendorCommission()
+    {
+        try {
+            $currentDate = Carbon::now();
+            $bookings = Booking::where('status', 'Confirmed')
+                ->where('check_in', '<', $currentDate)
+                ->where('vendor_commission_given', '=', 0)
+                ->get();
+            $affectedRows = 0;
+            foreach ($bookings as $booking) {
+                $vendorCommission = $booking->vendor_commission;
+                $description = 'Vendor commission for booking #' . $booking->id;
+                $this->addToVendorWallet($booking->host_id, $vendorCommission, $booking->id, '0', $description);
+                $booking->vendor_commission_given = 1;
+                $booking->status = 'Completed';
+                $booking->save();
+                $affectedRows++;
+            }
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Vendor commissions distributed successfully.',
+                'affected_rows' => $affectedRows,
+            ], 200);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'failure',
+                'message' => 'An error occurred while distributing vendor commissions.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function removeUnpaidBookings(Request $request)
+    {
+        try {
+            $unpaidBookings = Booking::where('payment_status', 'notpaid')
+                ->where('created_at', '<=', Carbon::now()->subHour())
+                ->get();
+            $count = $unpaidBookings->count();
+            if ($count == 0) {
+                return;
+            }
+
+            $unpaidBookingIds = $unpaidBookings->pluck('id')->toArray();
+            DB::beginTransaction();
+            DB::table('rental_item_dates')
+                ->whereIn('booking_id', $unpaidBookingIds)
+                ->update(['status' => 'Available', 'booking_id' => 0]);
+            Booking::whereIn('id', $unpaidBookingIds)->delete();
+            DB::commit();
+            return response()->json(['message' => 'Done', 'removed_count' => $count], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => 'Done', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    public function removeItemsOlderThanXDays()
+    {
+        try {
+            $itemsToRemove = ItemDate::where(function ($query) {
+                $query->where('status', 'Available')
+                    ->orWhere('status', 'Not available');
+            })
+                ->where('date', '<', Carbon::now()->subDays(10))
+                ->get();
+            $count = $itemsToRemove->count();
+            if ($count == 0) {
+                return;
+            }
+
+            DB::table('rental_item_dates')
+                ->where(function ($query) {
+                    $query->where('status', 'Available')
+                        ->orWhere('status', 'Not available');
+                })
+                ->where('date', '<', Carbon::now()->addDays(10))
+                ->delete();
+            return response()->json(['message' => 'Items within the next 10 days and with status \'Available\' or \'Not available\' have been removed', 'removed_count' => $count], 200);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'An error occurred while trying to remove items', 'details' => $e->getMessage()], 500);
+        }
+    }
+    public function updateDatabase(Request $request)
+    {
+        try {
+            // Step 1: Fetch all table names in the current database
+            $tables = DB::select('SHOW TABLES');
+
+            // The database name prefix for the tables (e.g., 'Tables_in_database_name')
+            $databaseName = env('DB_DATABASE');
+            $tablesKey = 'Tables_in_' . $databaseName;
+
+            // Step 2: Disable foreign key checks before dropping tables
+            DB::statement('SET FOREIGN_KEY_CHECKS = 0;');
+
+            // Step 3: Loop through all tables and drop them
+            foreach ($tables as $table) {
+                $tableName = $table->$tablesKey;
+                DB::statement('DROP TABLE IF EXISTS ' . $tableName);
+            }
+
+            // Re-enable foreign key checks
+            DB::statement('SET FOREIGN_KEY_CHECKS = 1;');
+
+            // Step 4: Load and execute the backup SQL file
+            $sqlFilePath = storage_path('app/databaseBackup.sql'); // Path to your SQL backup file
+
+            if (!File::exists($sqlFilePath)) {
+                return response()->json(['error' => 'SQL backup file not found.'], 404);
+            }
+
+            // Read the SQL file contents
+            $sql = File::get($sqlFilePath);
+
+            // Execute the SQL statements (this will recreate the tables and insert the data)
+            DB::unprepared($sql);
+
+            // Return success response
+            return response()->json(['message' => 'All tables have been dropped and the database has been updated successfully.'], 200);
+        } catch (\Exception $e) {
+            // Log the error for better debugging
+
+            return response()->json([
+                'error' => 'An error occurred while updating the database.',
+                'details' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function getItemPrices(Request $request)
+    {
+
+        $validator = Validator::make($request->all(), [
+            'item_id' => 'required|exists:rental_items,id',
+            'check_in' => 'required|date_format:Y-m-d',
+            'check_out' => 'required|date_format:Y-m-d',
+            'distance' => 'nullable|numeric', //new
+        ]);
+        $allowedModules = $this->sameDayBookingModule();
+
+        $validator->sometimes('check_out', 'after:check_in', function ($input) use ($request, $allowedModules) {
+            return !in_array($request->input('module_id'), $allowedModules);
+        });
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+        $itemId = $request->input('item_id');
+        $checkIn = $request->input('check_in');
+        $checkOut = $request->input('check_out');
+        $module = $this->getModuleIdOrDefault($request);
+        $start_time = $request->input('start_time', null);
+        $end_time = $request->input('end_time', null);
+        $distance = $request->input('distance', 0);
+        $doorStep_price = $request->input('doorStep_price', 0);
+        $totalDays = 0; // This  is for Vechile
+        $totalTime = [];
+        if (in_array($module, $allowedModules)) { // This is for Vechile
+            $totalTime = $this->returnHowManyDaysByModule($checkIn, $start_time, $checkOut, $end_time, $module, );
+        }
+
+        $checkOut = $this->returncheckOutDateByModule($checkIn, $start_time, $checkOut, $end_time, $module); // This  is for Vechile
+        $force = $request->input('force', false);
+        $couponCode = $request->input('coupon_code');
+        $wallet_amount = $request->input('wallet_amount', 0);
+        $selectedCurrencyCode = $request->input('selected_currency_code');
+        $convertionRate = Currency::getValueByCurrencyCode($selectedCurrencyCode);
+        return $this->getItemPricesDetails($itemId, $checkIn, $checkOut, $force, $couponCode, $wallet_amount, '', $totalTime, $selectedCurrencyCode, $convertionRate, $end_time, $doorStep_price);
+    }
+
+    public function updateItemDeliveredStatus(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'is_item_delivered' => 'required|boolean',
+            'token' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $user_id = $this->checkUserByToken($request->token);
+
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $booking = Booking::where('id', $request->booking_id)
+            ->where('host_id', $user_id)
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(404, trans('front.booking_extension_not_found'), '');
+        }
+
+        $bookingExtension = BookingExtension::where('booking_id', $request->booking_id)->first();
+
+        if (!$bookingExtension) {
+            return $this->addErrorResponse(404, trans('front.booking_extension_not_found'), '');
+        }
+
+        $bookingExtension->is_item_delivered = $request->is_item_delivered;
+        $bookingExtension->save();
+
+        //email sending
+        $template_id = 43;
+        $valuesArray = array();
+        $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+        $dataVal['message_key'] = $booking;
+        $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+
+        return $this->addSuccessResponse(200, trans('front.item_delivered_status_updated'), ['booking_extension' => $bookingExtension]);
+    }
+
+
+    public function updateItemReceivedStatus(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'is_item_received' => 'required|boolean',
+            'token' => 'required',
+            'pick_otp' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $user_id = $this->checkUserByToken($request->token);
+
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $booking = Booking::where('id', $request->booking_id)
+            ->where('userid', $user_id)
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(404, trans('front.booking_not_found'), '');
+        }
+
+        $bookingExtension = BookingExtension::where('booking_id', $request->booking_id)->first();
+
+
+        if (!$bookingExtension) {
+            return $this->addErrorResponse(404, trans('front.booking_extension_not_found'), '');
+        }
+
+        if ($bookingExtension->pick_otp !== $request->pick_otp) {
+            return $this->addErrorResponse(400, 'Invalid OTP', '');
+        }
+
+        if ($bookingExtension->is_item_delivered === 1) {
+
+            $bookingExtension->is_item_received = $request->is_item_received;
+            $bookingExtension->save();
+            //email sending 
+            $template_id = 44;
+            $valuesArray = array();
+            $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+            $dataVal['message_key'] = $booking;
+            $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+        } else {
+            return $this->addErrorResponse(404, trans('front.item_not_delivered_yet'), '');
+        }
+
+
+        return $this->addSuccessResponse(200, trans('front.item_received_status_updated'), ['booking_extension' => $bookingExtension]);
+    }
+
+
+    public function updateItemReturnedStatus(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'booking_id' => 'required|exists:bookings,id',
+            'is_item_returned' => 'required|boolean',
+            'token' => 'required',
+            'drop_otp' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $user_id = $this->checkUserByToken($request->token);
+
+        if (!$user_id) {
+            return $this->addErrorResponse(419, trans('front.token_not_match'), '');
+        }
+
+        $booking = Booking::where('id', $request->booking_id)
+            ->where('userid', $user_id)
+            ->first();
+
+        if (!$booking) {
+            return $this->addErrorResponse(404, trans('front.booking_not_found'), '');
+        }
+
+        $bookingExtension = BookingExtension::where('booking_id', $request->booking_id)->first();
+
+        if (!$bookingExtension) {
+            return $this->addErrorResponse(404, trans('front.booking_extension_not_found'), '');
+        }
+
+        if ($bookingExtension->drop_otp !== $request->drop_otp) {
+            return $this->addErrorResponse(400, 'Invalid OTP', '');
+        }
+
+        if ($bookingExtension->is_item_received === 1) {
+            $bookingExtension->is_item_returned = $request->is_item_returned;
+            $bookingExtension->save();
+
+            //email sending
+            $template_id = 45;
+            $valuesArray = array();
+            $valuesArray = $this->createNotificationArray($booking->userid, $booking->host_id, $booking->itemid, $booking->id);
+            $dataVal['message_key'] = $booking;
+            $this->sendAllNotifications($valuesArray, $booking->userid, $template_id, $dataVal, $booking->host_id);
+
+            // distribute vendor commission when item is returned
+            $distributionResult = $this->distributeVendorCommission();
+        } else {
+            return $this->addErrorResponse(404, trans('front.booking_extension_not_found'), '');
+        }
+
+
+        return $this->addSuccessResponse(200, trans('front.item_returned_status_updated'), ['booking_extension' => $bookingExtension]);
+    }
+}

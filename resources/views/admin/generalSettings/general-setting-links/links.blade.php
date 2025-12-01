@@ -1,0 +1,58 @@
+<ul class="nav navbar-pills nav-tabs nav-stacked no-margin" role="tablist">
+    <li class="{{ request()->routeIs('admin.settings') ? 'active' : '' }}">
+        <a href="{{ route('admin.settings') }}" data-group="profile">{{ trans('global.general_title') }}</a>
+    </li>
+    <li class="{{ request()->routeIs('admin.projectsetup') ? 'active' : '' }}" style="display: none;">
+        <a href="{{ route('admin.projectsetup') }}" data-group="profile">{{ trans('global.project_setup') }}</a>
+    </li>
+
+    <li class="{{ request()->routeIs('admin.bookingSetting') ? 'active' : '' }}">
+        <a href="{{ route('admin.bookingSetting') }}" data-group="booking">Bookings</a>
+    </li>
+    <li class="{{ request()->routeIs('admin.appscreensetting') ? 'active' : '' }}">
+        <a href="{{ route('admin.appscreensetting') }}" data-group="booking">App Screen Settings</a>
+    </li>
+    <li
+        class="{{ request()->routeIs('admin.smssetting') || request()->routeIs('admin.msg91') || request()->routeIs('admin.twilliosetting') || request()->routeIs('admin.nexmosetting') || request()->routeIs('admin.twofactor') ? 'active' : '' }}">
+        <a href="{{ route('admin.smssetting') }}" data-group="sms">{{ trans('global.smssettings_title') }}</a>
+    </li>
+
+    <li class="{{ request()->routeIs('admin.email') ? 'active' : '' }}">
+        <a href="{{ route('admin.email') }}" data-group="sms">{{ trans('global.emailSettings_title') }}</a>
+    </li>
+    <li class="{{ request()->routeIs('admin.currencySetting') ? 'active' : '' }}">
+        <a href="{{ route('admin.currencySetting') }}" data-group="sms">Currency Settings</a>
+    </li>
+    <li class="{{ request()->routeIs('admin.pushnotification') ? 'active' : '' }}">
+        <a href="{{ route('admin.pushnotification') }}" data-group="sms">{{ trans('global.push_notification_setting')
+            }}</a>
+    </li>
+
+    <li class="{{ request()->routeIs('admin.fees') ? 'active' : '' }}">
+        <a href="{{ route('admin.fees') }}" data-group="sms">{{ trans('global.fees_title') }}</a>
+    </li>
+
+    <li class="{{ request()->routeIs('admin.api-informations') ? 'active' : '' }}">
+        <a href="{{ route('admin.api-informations') }}" data-group="sms">{{ trans('global.apiCredentials_title') }} </a>
+    </li>
+
+
+    <li class="
+    {{ request()->routeIs('admin.payment-methods.index') ? 'active' : '' }}
+">
+        <a href="{{ route('admin.payment-methods.index', 'cash') }}" data-group="sms">
+            {{ trans('global.paymentMethods_title') }}
+        </a>
+    </li>
+
+
+    <li class="{{ request()->routeIs('admin.social-links') ? 'active' : '' }}" style="display:block">
+        <a href="{{ route('admin.social-links') }}" data-group="sms">{{ trans('global.socialLinks_title') }} </a>
+    </li>
+
+    <li class="{{ request()->routeIs('admin.social-logins') ? 'active' : '' }}">
+        <a href="{{ route('admin.social-logins') }}" data-group="sms">{{ trans('global.socialLogins_title') }}</a>
+    </li>
+
+
+</ul>

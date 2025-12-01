@@ -1,0 +1,412 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Controllers\Traits\{ResponseTrait, MediaUploadingTrait, MiscellaneousTrait, BookingAvailableTrait, };
+use App\Models\{AppUser};
+use App\Models\Modern\{Item, ItemType,Currency};
+use Gate;
+use Illuminate\Http\Request;
+use Validator;
+
+class HomeApiController extends Controller
+{
+    use MediaUploadingTrait, ResponseTrait, MiscellaneousTrait, BookingAvailableTrait;
+
+    /**
+     * Get home data.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function homeData(Request $request)
+    {
+        $homeData = [];
+
+        $itemTypes = ItemType::where('status', '1')
+            ->whereIn('id', function ($query) {
+                $query->select('item_type_id')
+                    ->from((new Item)->getTable())
+                    ->where('status', '1');
+            })
+            ->get(['id', 'name', 'description', 'status'])
+            ->map(function ($itemType) {
+                $imageUrl = isset($itemType->image) ? $itemType->image->url : null;
+                $items = Item::where('status', '1')
+                    ->where('item_type_id', $itemType->id)
+                    ->take(10)
+                    ->get()
+                    ->map(function ($items) {
+                        return $this->formatItemData($items);
+                    });
+
+                return [
+                    'id' => $itemType->id,
+                    'name' => $itemType->name,
+                    'description' => $itemType->description,
+                    'status' => $itemType->status,
+                    'image' => $imageUrl,
+                    'items' => $items,
+                ];
+            });
+
+        $homeData['Categories'] = $itemTypes;
+        $featuredItems = Item::where('is_featured', 1)
+            ->where('status', 1)
+            ->orderByDesc('created_at')
+            ->take(10)
+            ->get()
+            ->map(function ($featuredItems) {
+                return $this->formatItemData($featuredItems);
+            });
+
+        $homeData['Featured'] = $featuredItems;
+
+        return $this->addSuccessResponse(200, trans('global.Result_found'), $homeData);
+    }
+
+    public function featuredItems(Request $request, $place = '')
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'nullable|numeric|min:0',
+            'limit' => 'nullable|numeric|min:1',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+        $latitude = $request->input('latitude');
+        $longitude = $request->input('longitude');
+        $module = $this->getModuleIdOrDefault($request);
+
+        try {
+            $user = null;
+            if ($request->has('token')) {
+                $user = AppUser::where('token', $request->input('token'))->first();
+            }
+
+            $query = Item::where('is_featured', 1)
+                ->where('status', 1)
+                ->where('module', $module)
+                ->whereHas('userid', function ($query) {
+                    $query->where('status', 1)
+                        ->whereNull('deleted_at');  // This ensures the user isn't soft-deleted
+                });
+
+            if ($latitude !== null && $longitude !== null) {
+                $query->selectRaw("*, ST_Distance_Sphere(Point(longitude, latitude), Point(?, ?)) / 1000 as distance", [$longitude, $latitude])
+                    ->orderBy('distance')
+                    ->orderByDesc('created_at');
+            } else {
+                $query->orderByDesc('created_at');
+            }
+
+            $featuredItems = $query->offset($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($featureitem) use ($user) {
+                    $formattedItem = $this->formatItemData($featureitem);
+                    if ($user) {
+                        $formattedItem['is_in_wishlist'] = $user->itemWishlists()
+                            ->where('item_id', $featureitem->id)
+                            ->exists();
+                    } else {
+                        $formattedItem['is_in_wishlist'] = false;
+                    }
+
+                    $itemType = ItemType::find($featureitem->item_type_id);
+                    $formattedItem['item_type'] = $itemType ? $itemType->name : '';
+                    $formattedItem['item_info'] = $this->getModuleInfoValues($featureitem->module, $featureitem->id);
+
+                    if (isset($featureitem->distance)) {
+                        $formattedItem['distance'] = $featureitem->distance ? number_format($featureitem->distance, 2) . " km" : null;
+                    }
+
+                    return $formattedItem;
+                });
+
+            if ($place == 'HomeModule') {
+                return $featuredItems;
+            }
+
+            // Get the offset for the next page
+            $nextOffset = $request->input('offset', 0) + count($featuredItems);
+            if ($featuredItems->isEmpty()) {
+                $nextOffset = -1;
+            }
+
+            return $this->addSuccessResponse(200, trans('global.Result_found'), [
+                'items' => $featuredItems,
+                'offset' => $nextOffset
+            ]);
+        } catch (Exception $e) {
+            return $this->addErrorResponse(500, trans('global.something_wrong'), $e->getMessage());
+        }
+    }
+
+    /**
+     * Get Most Viewed  items with front image, pagination, and offset.
+     *
+     * @param  \Illuminate\Http\Request  $request
+     * @return \Illuminate\Http\Response
+     */
+    public function mostViewedItems(Request $request, $place = '')
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'nullable|numeric|min:0',
+            'limit' => 'nullable|numeric|min:1',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+        $latitude = $request->input('latitude');
+        $longitude = $request->input('longitude');
+        $itemType = $request->input('item_type');
+        $module = $this->getModuleIdOrDefault($request);
+
+        try {
+            $user = null;
+            if ($request->has('token')) {
+                $user = AppUser::where('token', $request->input('token'))->first();
+            }
+
+            $query = Item::where('status', 1)
+                ->where('module', $module)
+                ->whereHas('userid', function ($query) {
+                    $query->where('status', 1)
+                        ->whereNull('deleted_at');  
+                });
+
+            if ($latitude !== null && $longitude !== null) {
+                $query->selectRaw("*, ST_Distance_Sphere(Point(longitude, latitude), Point(?, ?)) / 1000 as distance", [$longitude, $latitude])
+                    ->orderBy('distance')
+                    ->orderByDesc('views_count');
+            } else {
+                $query->orderByDesc('views_count');
+            }
+            if ($itemType) {
+              
+                $query->where('item_type_id', $itemType);
+            }
+            
+            $mostViewedItems = $query->orderBy('id')
+                ->offset($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($items) use ($user) {
+                    $formattedItem = $this->formatItemData($items);
+                    if ($user) {
+                        $formattedItem['is_in_wishlist'] = $user->itemWishlists()
+                            ->where('item_id', $items->id)
+                            ->exists();
+                    } else {
+                        $formattedItem['is_in_wishlist'] = false;
+                    }
+
+                    $itemType = ItemType::find($items->item_type_id);
+                    $formattedItem['item_type'] = $itemType ? $itemType->name : '';
+
+                    if (isset($items->distance)) {
+
+                        $formattedItem['distance'] = $items->distance ? number_format($items->distance, 2) . " km" : null;
+                    }
+
+                    return $formattedItem;
+                });
+
+            if ($place == 'HomeModule') {
+                return $mostViewedItems;
+            }
+
+            // Get the offset for the next page
+            $nextOffset = $request->input('offset', 0) + count($mostViewedItems);
+
+            if (empty($mostViewedItems->toArray())) {
+                $nextOffset = -1;
+            }
+
+            return $this->addSuccessResponse(200, trans('global.Result_found'), [
+                'items' => $mostViewedItems,
+                'offset' => $nextOffset
+            ]);
+        } catch (Exception $e) {
+            return $this->addErrorResponse(500, trans('global.something_wrong'), $e->getMessage());
+        }
+    }
+
+    public function nearbyItems(Request $request)
+    {
+
+        
+         $validator = Validator::make($request->all(), [
+            'offset' => 'nullable|numeric|min:0',
+            'limit' => 'nullable|numeric|min:1',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+            'radius' => 'nullable|numeric|min:1',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+  
+        $limit = $request->input('limit', 20);
+        $offset = $request->input('offset', 0);
+        $latitude = $request->input('latitude');
+        $longitude = $request->input('longitude');
+        $radius = $request->input('radius', 50000);
+        $itemType = $request->input('item_type');
+
+        $module = $this->getModuleIdOrDefault($request);
+
+        try {
+            $user = null;
+            if ($request->has('token')) {
+                $user = AppUser::where('token', $request->input('token'))->first();
+            }
+            $selectedCurrencyCode = $request->input('selected_currency_code');
+            $convertionRate = Currency::getValueByCurrencyCode($selectedCurrencyCode);
+            $query = Item::with(['item_type:id,name'])
+            ->where('status', 1)
+                ->where('module', $module)
+                ->whereHas('userid', function ($query) {
+                    $query->where('status', 1)
+                        ->whereNull('deleted_at');
+                });
+
+            if ($latitude && $longitude) {
+                $query->selectRaw("*, ST_Distance_Sphere(Point(longitude, latitude), Point(?, ?)) / 1000 as distance", [$longitude, $latitude])
+                    ->whereRaw("ST_Distance_Sphere(Point(longitude, latitude), Point(?, ?)) <= ?", [$longitude, $latitude, $radius * 1000])
+                    ->orderBy('distance');
+            }
+
+            if ($itemType) {
+              
+                    $query->where('item_type_id', $itemType);
+                }
+              
+                $nearbyItems = $query->orderBy('id')
+                ->offset($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($item) use ($user,$convertionRate,$selectedCurrencyCode) {
+                    $formattedItem = $this->formatItemData($item,$convertionRate);
+                    if ($user) {
+                        $formattedItem['is_in_wishlist'] = $user->itemWishlists()
+                            ->where('item_id', $item->id)
+                            ->exists();
+                    } else {
+                        $formattedItem['is_in_wishlist'] = false;
+                    }
+                    $formattedItem['price'] = $this->formatPriceWithConversion($item->price,$selectedCurrencyCode,$convertionRate,1); 
+                    $formattedItem['item_type'] = $item->item_Type->name ?? '';
+                    $formattedItem['distance'] = $item->distance ? number_format($item->distance, 2) . " km" : null;
+
+                    return $formattedItem;
+                });
+
+            $nextOffset = $request->input('offset', 0) + count($nearbyItems);
+
+            if (empty($nearbyItems->toArray())) {
+                $nextOffset = -1;
+            }
+
+            return $this->addSuccessResponse(200, trans('global.Result_found'), [
+                'items' => $nearbyItems,
+                'offset' => $nextOffset
+            ]);
+        } catch (Exception $e) {
+            return $this->addErrorResponse(500, trans('global.something_wrong'), $e->getMessage());
+        }
+    }
+
+    public function newArrivalItems(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'offset' => 'nullable|numeric|min:0',
+            'limit' => 'nullable|numeric|min:1',
+            'latitude' => 'nullable|numeric|between:-90,90',
+            'longitude' => 'nullable|numeric|between:-180,180',
+        ]);
+
+        if ($validator->fails()) {
+            return $this->errorComputing($validator);
+        }
+
+        $limit = $request->input('limit', 10);
+        $offset = $request->input('offset', 0);
+        $latitude = $request->input('latitude');
+        $longitude = $request->input('longitude');
+
+        $module = $this->getModuleIdOrDefault($request);
+
+        try {
+            $user = null;
+            if ($request->has('token')) {
+                $user = AppUser::where('token', $request->input('token'))->first();
+            }
+
+            $query = Item::where('status', 1)
+                ->where('module', $module)
+                ->whereHas('userid', function ($query) {
+                    $query->where('status', 1)
+                        ->whereNull('deleted_at');
+                });
+
+
+            if ($latitude && $longitude) {
+                $query->selectRaw("*, ST_Distance_Sphere(Point(longitude, latitude), Point(?, ?)) / 1000 as distance", [$longitude, $latitude])
+                    ->orderBy('distance', 'asc');
+            }
+
+            $newArrivalItems = $query->orderBy('created_at', 'desc') // Order by creation date to get new arrivals
+                ->offset($offset)
+                ->take($limit)
+                ->get()
+                ->map(function ($item) use ($user) {
+                    $formattedItem = $this->formatItemData($item);
+                    if ($user) {
+                        $formattedItem['is_in_wishlist'] = $user->itemWishlists()
+                            ->where('item_id', $item->id)
+                            ->exists();
+                    } else {
+                        $formattedItem['is_in_wishlist'] = false;
+                    }
+
+                    $itemType = ItemType::find($item->item_type_id);
+                    $formattedItem['item_type'] = $itemType ? $itemType->name : '';
+
+                    $formattedItem['distance'] = isset($item->distance) ? number_format($item->distance, 2) . " km" : null;
+
+                    return $formattedItem;
+                });
+
+            $nextOffset = $request->input('offset', 0) + count($newArrivalItems);
+
+            if (empty($newArrivalItems->toArray())) {
+                $nextOffset = -1;
+            }
+
+            return $this->addSuccessResponse(200, trans('global.Result_found'), [
+                'items' => $newArrivalItems,
+                'offset' => $nextOffset
+            ]);
+        } catch (Exception $e) {
+            return $this->addErrorResponse(500, trans('global.something_wrong'), $e->getMessage());
+        }
+    }
+
+
+}

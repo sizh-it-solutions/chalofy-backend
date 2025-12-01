@@ -1,0 +1,47 @@
+<?php
+
+namespace App\Http\Requests;
+
+use App\Models\Payout;
+use Gate;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Response;
+
+class StorePayoutRequest extends FormRequest
+{
+    // public function authorize()
+    // {
+    //     return Gate::allows('payout_create');
+    // }
+
+    public function rules()
+    {
+        return [
+            'vendorid' => [
+                'required',
+                'integer',
+                'min:-2147483648',
+                'max:2147483647',
+            ],
+            'amount' => [
+                'required',
+            ],
+            // 'currency' => [
+            //     'string',
+            //     'nullable',
+            // ],
+            // 'vendor_name' => [
+            //     'string',
+            //     'nullable',
+            // ],
+            'payment_method' => [
+                'string',
+                'nullable',
+            ],
+            'account_number' => [
+                'string',
+                'nullable',
+            ],
+        ];
+    }
+}

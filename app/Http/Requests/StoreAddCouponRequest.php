@@ -1,0 +1,45 @@
+<?php
+
+namespace App\Http\Requests;
+
+use App\Models\AddCoupon;
+use Gate;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Response;
+
+class StoreAddCouponRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return Gate::allows('add_coupon_create');
+    }
+
+    public function rules()
+    {
+        return [
+            'coupon_title' => [
+                'string',
+                'required',
+            ],
+            'coupon_subtitle' => [
+                'string',
+                'nullable',
+            ],
+            'coupon_image' => [
+                'string',
+                'nullable',
+            ],
+            'coupon_expiry_date' => [
+                'date_format:' . config('panel.date_format'),
+                'nullable',
+            ],
+            'coupon_code' => [
+                'string',
+                'required',
+            ],
+            'coupon_value' => [
+                'required',
+            ],
+        ];
+    }
+}

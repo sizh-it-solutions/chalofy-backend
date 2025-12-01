@@ -1,0 +1,22 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["3N8A58R4VB.com.sizh.unibooker.vehicle.rental.app"],
+        "components": [
+          {
+            "/": "/free*",
+            "comment": "Matches all free paths"
+          },
+          {
+            "/": "/free.html*", 
+            "comment": "Matches free.html paths"
+          }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["3N8A58R4VB.com.sizh.unibooker.vehicle.rental.app"]
+  }
+}

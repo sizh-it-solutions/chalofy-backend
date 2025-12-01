@@ -1,0 +1,11 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.chalofycars.vehiclerental.app",
+    "sha256_cert_fingerprints": [
+      "1B:A9:26:D1:F4:77:21:05:CF:23:28:89:43:FE:11:B6:B1:99:03:89:7C:2E:2C:82:D4:F4:E6:A6:95:7F:88:85",
+      "73:4A:B3:C9:D9:D3:D4:69:F3:20:50:BD:5F:65:77:90:DA:CA:16:2E:0C:61:B0:88:82:5E:80:34:DA:69:13:5E"
+    ]
+  }
+}]
