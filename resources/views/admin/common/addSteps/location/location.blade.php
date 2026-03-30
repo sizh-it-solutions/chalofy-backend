@@ -10,6 +10,13 @@
         }
     </style>
     @endsection
+
+    <!-- Leaflet CSS -->
+<!-- <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+<!-- Leaflet JS -->
+
+
 @section('content')
 <section class="content">
 <div class="row gap-2">
@@ -108,9 +115,38 @@
         </div>
     </section>
     <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+<script src="https://www.unpkg.com/olamaps-web-sdk@latest/dist/olamaps-web-sdk.umd.js"></script>
+
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBWSaIGPjDYXVEessst_BWmuDPz-8W2zHw&libraries=places"></script>
+
+
+{{-- AUTOCOMPLETE: Ola Maps Suggestion System --}}
+<style>
+    /* Simple dropdown (NO CHANGE to your HTML structure) */
+    #autocomplete-list {
+        position: absolute;
+        background: #fff;
+        width: 100%;
+        border: 1px solid #ccc;
+        z-index: 9999;
+        max-height: 180px;
+        overflow-y: auto;
+        display: none;
+    }
+    #autocomplete-list div {
+        padding: 8px 10px;
+        cursor: pointer;
+    }
+    #autocomplete-list div:hover {
+        background: #f0f0f0;
+    }
+</style>
+
+<div id="autocomplete-list"></div>
 
 <script>
-const countries = [
+
+    const countries = [
       { code: 'AF', name: 'Afghanistan' },
       { code: "AL", name: 'Albania' },
       { code: "DZ", name: 'Algeria' },
@@ -351,6 +387,9 @@ const countries = [
       { code: "ZM", name: 'Zambia' },
       { code: "ZW", name: 'Zimbabwe' },
 ];
+/* ------------------------------------------------------------
+   OLA AUTOCOMPLETE DROPDOWN (NEW)
+--------------------------------------------------------------*/
 
 const selectElement = document.getElementById('select_country');
 const addressInput = document.getElementById('address_line_1');
@@ -374,28 +413,29 @@ countries.forEach(country => {
 });
 }
 function getCountryFromAddress() {
-  const address = addressInput.value;
-  const geocoder = new google.maps.Geocoder();
+    const address = document.getElementById("address_line_1").value;
 
-  geocoder.geocode({ 'address': address }, function (results, status) {
-    if (status === 'OK' && results[0]) {
-      const countryComponent = results[0].address_components.find(
-        component => component.types.includes('country')
-      );
+    if (!address) return;
 
-      if (countryComponent) {
-        const countryCode = countryComponent.short_name;
-        selectCountryByCode(countryCode);
-      } else {
-        // Country not found in geocoding results
-        // Handle this case accordingly
-      }
-    } else {
-      // Geocoding was not successful
-      // Handle this case accordingly
-    }
-  });
+    fetch(`https://api.olamaps.io/places/v1/geocode?address=${encodeURIComponent(address)}&api_key=${OLA_API_KEY}`)
+        .then(res => res.json())
+        .then(results => {
+
+            if (!results?.length) return;
+
+            let addr = results[0];
+
+            let country = addr.country || "";
+            let countryCode = addr.country_code || "";
+
+            if (countryCode) {
+                selectCountryByCode(countryCode.toUpperCase());
+            }
+
+        })
+        .catch(err => console.error("Country lookup error:", err));
 }
+
 // Dynamically generate options for the country select dropdown
 countries.forEach(country => {
   const option = document.createElement('option');
@@ -404,113 +444,191 @@ countries.forEach(country => {
   selectElement.appendChild(option);
 });
 </script>
-<!-- map -->
-<script async defer src="https://maps.googleapis.com/maps/api/js?key={{ $api_google_map_key->meta_value ?? '' }}&libraries=places&callback=initMap"></script>
 
 <script>
-function initMap() {
-    var geocoder = new google.maps.Geocoder();
-    var addressInput = document.getElementById('address_line_1');
-    var map = new google.maps.Map(document.getElementById('map'), {
-        zoom: 15,
-        center: { lat: 0, lng: 0 } // Default center, will be updated based on the address
+// Create map (center will auto-update from geocode)
+let map;
+let marker;
+
+function initGoogleMap(lat = 20.5937, lng = 78.9629) {
+
+    const position = { lat: lat, lng: lng };
+
+    map = new google.maps.Map(document.getElementById("map"), {
+        center: position,
+        zoom: 6,
     });
-    var marker = new google.maps.Marker({
+
+    marker = new google.maps.Marker({
+        position: position,
         map: map,
         draggable: true
     });
 
-    // Create an Autocomplete object for the address input
-    var autocomplete = new google.maps.places.Autocomplete(addressInput);
+    // When dragging ends → update lat/lng + reverse geocode
+    google.maps.event.addListener(marker, "dragend", function () {
+        const pos = marker.getPosition();
 
-    // Set the bounds to restrict suggestions to the map area
-    autocomplete.bindTo('bounds', map);
+        document.getElementById("latitude").value = pos.lat();
+        document.getElementById("longitude").value = pos.lng();
 
-    // Update the map and marker when a suggestion is selected
-    autocomplete.addListener('place_changed', function () {
-        geocodeAddress(geocoder, map, marker);
-    });
-
-    // Trigger the initial update based on the existing address value
-    geocodeAddress(geocoder, map, marker);
-
-    // Add event listener for marker dragend event
-    marker.addListener('dragend', function () {
-        updateLocationFromMarker(geocoder, map, marker);
+        reverseGeocode(pos.lat(), pos.lng());
     });
 }
 
-function geocodeAddress(geocoder, map, marker) {
-    var address = document.getElementById('address_line_1').value;
+// Initialize map after load
+window.onload = function () {
+    
+    initGoogleMap();
+};
 
-    geocoder.geocode({ 'address': address }, function (results, status) {
-        if (status === 'OK' && results[0]) {
-            map.setCenter(results[0].geometry.location);
-            marker.setPosition(results[0].geometry.location);
 
-            // Get and display location information
-            displayLocationInfo(results[0]);
-        } else {
-            console.error('Geocode was not successful for the following reason: ' + status);
-        }
-    });
-}
+const OLA_API_KEY = "AWyvnc8iASJAskhTTcw71U69SILb9qnyH7izgU1e";
 
-function updateLocationFromMarker(geocoder, map, marker) {
-    var markerPosition = marker.getPosition();
-    geocoder.geocode({ 'location': markerPosition }, function (results, status) {
-        if (status === 'OK' && results[0]) {
-            // Get and display location information
-            displayLocationInfo(results[0]);
-        } else {
-            console.error('Reverse geocode was not successful for the following reason: ' + status);
-        }
-    });
-}
+// Inputs
+const input = document.getElementById("address_line_1");
+const suggestionBox = document.getElementById("autocomplete-list");
 
-function displayLocationInfo(result) {
-    var city = "";
-    var state = "";
-    var country = "";
-    var zipCode = "";
-    var latitude = result.geometry.location.lat();
-    var longitude = result.geometry.location.lng();
+// Listen while typing
+input.addEventListener("keyup", function () {
 
-    // Extract address components
-    for (var i = 0; i < result.address_components.length; i++) {
-        var component = result.address_components[i];
-        if (component.types.includes('locality')) {
-            city = component.long_name;
-        } else if (component.types.includes('administrative_area_level_1')) {
-            state = component.long_name;
-        } else if (component.types.includes('country')) {
-            country = component.long_name;
-        } else if (component.types.includes('postal_code')) {
-            zipCode = component.long_name;
-        }
+    let text = input.value.trim();
+
+    // Minimum 3 letters before showing suggestions
+    if (text.length < 3) {
+        suggestionBox.style.display = "none";
+        suggestionBox.innerHTML = "";
+        return;
     }
 
-    // Update form fields
-    $('.stateget').val(state);
-    $('#latitude').val(latitude);
-    $('#longitude').val(longitude);
-    $('#city').val(city);
-    $('#zipCode').val(zipCode);
-   
+    
 
-    // Log location information
-    console.log('City:', city);
-    console.log('Country:', country);
-    console.log('Latitude:', latitude);
-    console.log('Longitude:', longitude);
-    console.log('State:', state);
-    console.log('Zip Code:', zipCode);
-    var formattedAddress = result.formatted_address;
-    console.log('address:',formattedAddress);
-    $('.okokok').val(formattedAddress);
+    fetch(`https://api.olamaps.io/places/v1/autocomplete?input=${encodeURIComponent(text)}&api_key=${OLA_API_KEY}`)
+        .then(res => res.json())
+        .then(data => {
+
+            console.log("📌 Autocomplete API response:", data);
+
+            suggestionBox.innerHTML = "";
+
+            if (!data?.predictions || data.predictions.length === 0) {
+                suggestionBox.style.display = "none";
+                return;
+            }
+
+            suggestionBox.style.display = "block";
+            suggestionBox.style.width = input.offsetWidth + "px";
+            suggestionBox.style.left = input.getBoundingClientRect().left + "px";
+            suggestionBox.style.top = (input.getBoundingClientRect().bottom) + "px";
+
+            // Loop suggestions
+            data.predictions.forEach(item => {
+                let div = document.createElement("div");
+                div.innerHTML = item.description;
+
+                div.addEventListener("click", function () {
+
+               
+
+                    input.value = item.description;
+                    suggestionBox.style.display = "none";
+
+                  
+
+                    fetch(`https://api.olamaps.io/places/v1/geocode?address=${encodeURIComponent(item.description)}&api_key=${OLA_API_KEY}`)
+                        .then(res => res.json())
+                        .then(result => {
+
+                    
+
+                        if (!result?.geocodingResults || result.geocodingResults.length === 0) {
+                            console.error("❌ No geocode result found");
+                            return;
+                        }
+
+                     
+
+                        let geo = result.geocodingResults[0];
+
+                        let lat = geo.geometry.location.lat;
+                        let lng = geo.geometry.location.lng;
+
+
+                            // Move marker
+                            marker.setPosition({ lat: lat, lng: lng });
+                            map.setCenter({ lat: lat, lng: lng });
+
+                            // Update fields
+                            document.getElementById("latitude").value = lat;
+                            document.getElementById("longitude").value = lng;
+
+                            
+
+                            // Auto-fill rest of address fields
+                            reverseGeocode(lat, lng);
+                        })
+                        .catch(e => console.error("❌ Geocode error:", e));
+                });
+
+                suggestionBox.appendChild(div);
+            });
+        })
+        .catch(err => console.error("❌ Autocomplete error:", err));
+});
+
+
+// -------------------------------------
+// REVERSE GEOCODE FUNCTION
+// -------------------------------------
+
+// Extract address components correctly
+function getComponent(components, type) {
+    const comp = components.find(c => c.types.includes(type));
+    return comp ? comp.long_name : "";
 }
 
+function reverseGeocode(lat, lng) {
 
+
+    fetch(`https://api.olamaps.io/places/v1/reverse-geocode?latlng=${lat},${lng}&api_key=${OLA_API_KEY}`)
+        .then(res => res.json())
+        .then(data => {
+
+            console.log("📌 Reverse Geocode Response:", data);
+
+            if (!data?.results?.length) {
+                console.error("❌ No results found");
+                return;
+            }
+
+            const result = data.results[0];
+            const components = result.address_components || [];
+
+            // Extract data
+            const city    = getComponent(components, "locality");
+            const state   = getComponent(components, "administrative_area_level_1");
+            const zipCode = getComponent(components, "postal_code");
+
+            // Fill form fields
+            document.getElementById("city").value      = city;
+            document.getElementById("state").value     = state;
+            document.getElementById("zipCode").value   = zipCode;
+            document.getElementById("latitude").value  = lat;
+            document.getElementById("longitude").value = lng;
+
+            console.log("🏙 City:", city);
+            console.log("🗺 State:", state);
+            console.log("📮 Zip:", zipCode);
+        })
+        .catch(err => console.error("❌ Reverse Geocode Error:", err));
+}
+
+// Hide suggestion box when clicking outside
+document.addEventListener("click", function (e) {
+    if (e.target !== input) {
+        suggestionBox.style.display = "none";
+    }
+});
 </script>
 
 <script>
@@ -547,5 +665,6 @@ $(document).ready(function() {
 
 });
 </script>
+
 
 @endsection

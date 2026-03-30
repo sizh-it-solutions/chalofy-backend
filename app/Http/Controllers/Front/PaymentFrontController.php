@@ -122,7 +122,7 @@ class PaymentFrontController extends Controller
         return redirect()->route('payment_pending', ['bookingId' => $bookingId]);
     }
 
-    public function handlePhonepeWebhook(Request $request)
+    public function handlePhonepeWebhook_bkp_16_02_2025(Request $request)
     {
 
         $merchantOrderId = $request->input('payload.merchantOrderId');
@@ -150,6 +150,50 @@ class PaymentFrontController extends Controller
 
         return redirect('/payment_fail')->with('error', 'Invalid strategy.');
     }
+
+    public function handlePhonepeWebhook(Request $request)
+    {
+       
+
+        $merchantOrderId = $request->input('payload.merchantOrderId');
+        $state = $request->input('payload.state');
+        $transactionId = $request->input('payload.paymentDetails.0.transactionId');
+
+        
+
+        if (!$merchantOrderId) {
+            Log::warning('PhonePe Webhook Missing Merchant Order ID', [
+                'request_payload' => $request->all()
+            ]);
+            return response()->json(['error' => 'Missing order ID'], 400);
+        }
+
+        // if (Str::startsWith($merchantOrderId, 'wallet_')) {
+        //     // Log routing to wallet handler
+        //     Log::info('PhonePe Webhook Routed to Wallet Handler', [
+        //         'merchant_order_id' => $merchantOrderId
+        //     ]);
+
+        //     $walletController = app(\App\Http\Controllers\Front\WalletRecharge\WalletRechargeController::class);
+        //     return $walletController->handlePhonepeWalletWebhook($request);
+        // }
+
+        // Default: treat as booking
+        // $bookingId = str_replace('order_', '', $merchantOrderId);
+        $bookingId = str_ireplace('order_', '', $merchantOrderId);
+
+
+        $strategy = $this->getPaymentStrategy('phonepe');
+
+        if ($strategy && method_exists($strategy, 'handleWebhook')) {
+            $redirectUrl = $strategy->handleWebhook($bookingId, $transactionId, $request->all());
+
+            return redirect($redirectUrl);
+        }
+
+        return redirect('/payment_fail')->with('error', 'Invalid strategy.');
+    }
+
 
     public function handleCancel(Request $request)
     {

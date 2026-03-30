@@ -141,7 +141,7 @@ class PayoutController extends Controller
         return redirect()->route('admin.payouts.index');
     }
     // payment approved function 
-    public function updateStatus(Request $request, $payout)
+    public function updateStatus_bkp_17_12_2025(Request $request, $payout)
     {
 
         $payoutData = Payout::find($payout);
@@ -191,6 +191,60 @@ class PayoutController extends Controller
             'message' => 'Payout Status updated successfully.'
         ]);
     }
+
+    public function updateStatus(Request $request, $payout)
+    {
+        $payoutData = Payout::find($payout);
+        if (!$payoutData) {
+            return response()->json(['error' => 'Payout not found'], 404);
+        }
+
+        if ($request->hasFile('payout_proof')) {
+            $payoutData->clearMediaCollection('payout_proof'); // clear old proof if any
+            $payoutData->addMedia($request->file('payout_proof'))->toMediaCollection('payout_proof');
+        }
+
+        // Only update if status is not already 'Success'
+        if ($payoutData->payout_status !== 'Success') {
+            $payoutData->payout_status = 'Success';
+            $payoutData->save();
+
+            // Add wallet transaction
+            $vendorId = $payoutData->vendorid;
+            $amount = $payoutData->amount;
+            $currency = $payoutData->currency;
+            $bookingId = null;
+            $payoutId = $payout;
+            $type = 'debit';
+            $description = 'Payout Status Update';
+
+            $this->addVendorWalletTransaction($vendorId, $amount, $type, $bookingId, $payoutId, $description);
+
+            // Send notifications
+            $user = AppUser::where('id', $vendorId)->first();
+            $settings = GeneralSetting::whereIn('meta_key', ['general_email'])
+                ->get()
+                ->keyBy('meta_key');
+
+            $general_email = $settings['general_email'] ?? null;
+
+            $template_id = 6;
+            $valuesArray = $user->only(['first_name', 'last_name', 'email', 'phone_country', 'phone']);
+            $valuesArray['phone'] = $valuesArray['phone_country'] . $valuesArray['phone'];
+            $valuesArray['currency_code'] = $currency;
+            $valuesArray['payout_amount'] = $amount;
+            $valuesArray['payout_bank'] = $payoutData->payment_method;
+            $valuesArray['support_email'] = $general_email->meta_value;
+            $valuesArray['payout_date'] = now()->format('Y-m-d');
+            $this->sendAllNotifications($valuesArray, $user->id, $template_id);
+        }
+
+        return response()->json([
+            'status' => 200,
+            'message' => 'Payout Status updated successfully.'
+        ]);
+    }
+
 
 
     public function edit(Payout $payout)

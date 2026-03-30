@@ -27,7 +27,8 @@ class CleanupStaleData implements ShouldQueue
     {
         
         //$cutoff = now()->subHour();
-        $cutoff = now()->subMinutes(30);
+        //$cutoff = now()->subMinutes(30);
+        $cutoff = now()->subMinutes(6);
 
         Booking::whereIn('payment_status', ['notpaid', 'failed'])
             ->where('created_at', '<=', $cutoff)

@@ -31,6 +31,7 @@ class CommonVehicleLocationController extends Controller
         $nextButton = "/admin/".$realRoute."/features/";
         $leftSideMenu = $this->getLeftSideMenu($module);
 
+
         return view('admin.common.addSteps.location.location',compact('id', 'api_google_map_key','itemData','cityData','backButtonRoute','updateLocationRoute','nextButton','leftSideMenu'));
     
     }

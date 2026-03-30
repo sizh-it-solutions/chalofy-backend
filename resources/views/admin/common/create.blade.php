@@ -43,7 +43,7 @@
                         @endforeach
 
                         {{-- User Select --}}
-                        <div class="form-group {{ $errors->has('userid_id') ? 'has-error' : '' }}">
+                        {{--<div class="form-group {{ $errors->has('userid_id') ? 'has-error' : '' }}">
                             <label for="userid_id">{{ trans('global.vendor') }}</label>
                             <select class="form-control select2" name="userid_id" id="userid_id" required>
                                 @foreach($userids as $id => $entry)
@@ -53,9 +53,20 @@
                             @if($errors->has('userid_id'))
                                 <span class="help-block" role="alert">{{ $errors->first('userid_id') }}</span>
                             @endif
+                        </div>--}}
+
+                        
+                        <div class="form-group {{ $errors->has('userid_id') ? 'has-error' : '' }}">
+                            <label for="userid_id">{{ trans('global.vendor') }}</label>
+                            <select class="form-control select2" name="userid_id" id="userid_id" required>
+                                
+                            </select>
+                            @if($errors->has('userid_id'))
+                                <span class="help-block" role="alert">{{ $errors->first('userid_id') }}</span>
+                            @endif
                         </div>
 
-                        {{-- Place Select --}}
+                        
                         <div class="form-group {{ $errors->has('place_id') ? 'has-error' : '' }}">
                             <label class="required" for="place_id">{{ trans('global.place') }}</label>
                             <select class="form-control select2" name="place_id" id="place_id" required>
@@ -91,5 +102,48 @@
         const selectedAmenities = {!! json_encode(old('features_id', [])) !!};
         $('.multipleaddselect').val(selectedAmenities).trigger('change');
     });
+</script>
+
+
+
+<script>
+$(document).ready(function() {
+
+    $('#userid_id').select2({
+        placeholder: '{{ trans("global.pleaseSelect") }}',
+        ajax: {
+            url: '{{ route("admin.searchcustomer") }}',
+            dataType: 'json',
+            delay: 250,
+
+            data: function(params) {
+                
+
+                return {
+                    q: params.term,
+                    data_type: 'vendor',
+                    page: params.page || 1
+                };
+            },
+
+            processResults: function(response) {
+
+                console.log("Full Response:", response);
+                console.log("Results Array:", response.results);
+                console.log("Pagination:", response.pagination);
+
+                
+                return {
+                    results: response.results,
+                    pagination: response.pagination
+                };
+            },
+
+            cache: true
+        },
+        minimumInputLength: 2
+    });
+
+});
 </script>
 @endsection

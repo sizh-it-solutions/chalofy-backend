@@ -15,6 +15,10 @@ Route::group(['prefix' => 'v1', 'as' => 'api.', 'namespace' => 'Api\V1\Admin', '
   // Slider
   Route::post('/sliders', [SliderApiController::class, 'sliders']);
 
+
+  // PhonePe SDK
+  Route::post('/phonepe/create-order', 'PhonePeApiController@createOrder');
+
   // App Users
 
 

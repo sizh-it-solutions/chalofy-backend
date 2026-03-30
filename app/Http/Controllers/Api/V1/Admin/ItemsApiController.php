@@ -844,7 +844,7 @@ class ItemsApiController extends Controller
         // try {
         $offset = $request->input('offset', 0);
         $limit = $request->input('limit', 20);
-        $limit = 30;
+        $limit = 60;
         $module = $this->getModuleIdOrDefault($request);
         $query = Item::query();
         $latitude = $request->input('Slatitude');
@@ -859,10 +859,11 @@ class ItemsApiController extends Controller
 
         $selectedCurrencyCode = $request->input('selected_currency_code');
         $convertionRate = Currency::getValueByCurrencyCode($selectedCurrencyCode);
-        $miles = 30000; // near about 50 km
+        $miles = 999999;//30000; // near about 50 km
 
         if ($request->input('search_on_map') == 1) {
-            $miles = 80000;
+            $miles = 999999;//80000;
+             //$limit = null;;
         }
 
         if (!empty($request->input('Slatitude')) && !empty($request->input('Slongitude'))) {

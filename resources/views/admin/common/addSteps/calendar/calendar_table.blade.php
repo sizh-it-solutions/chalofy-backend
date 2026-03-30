@@ -130,9 +130,15 @@
                     $statusCondition = isset($StatusData[$dateKey]) ? $StatusData[$dateKey] : '';
                    $bookingDataCondition = isset($bookingData[$dateKey]) ? $bookingData[$dateKey] : '0';
                    
+
+                   
+                    $currentDate = now(); // Get the current date
+                    $DateKey = "$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT);
+                    $Date = \Carbon\Carbon::createFromFormat('Y-m-d', $DateKey);
+                    $isPastDate11 = $Date->isPast();
                 @endphp
 
-                @if($bookingDataCondition != '0' )
+                @if($bookingDataCondition != '0' && !$isPastDate11)
         <td class=" bookingClass bggreen"  
           data-priceValue="{{ isset($priceData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)]) ? $priceData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)] : '0' }}"
           data-DateValue="{{ isset($dateData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)]) ? $dateData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)] : '0' }}"
@@ -150,7 +156,7 @@
                 <div class='dayPrice'>{{$general_default_currency->meta_value}} {{ $price }}  </div>
                 
         </td>
-                @elseif($statusCondition == 'Not available')
+                @elseif($statusCondition == 'Not available' && !$isPastDate11)
                 <td class="calendar-date statusClass bgred"  
           data-priceValue="{{ isset($priceData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)]) ? $priceData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)] : '0' }}"
           data-DateValue="{{ isset($dateData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)]) ? $dateData["$year-$month-" . str_pad($day, 2, '0', STR_PAD_LEFT)] : '0' }}"

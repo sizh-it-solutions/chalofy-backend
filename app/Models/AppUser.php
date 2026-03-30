@@ -66,7 +66,10 @@ class AppUser extends Authenticatable implements HasMedia
         'ave_host_rate',
         'avr_guest_rate',
         'user_type',
-        'host_status'
+        'host_status',
+        'phone_verify',
+        'email_verify',
+        'verified'
     ];
 
     protected function serializeDate(DateTimeInterface $date)

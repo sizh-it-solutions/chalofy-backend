@@ -20,7 +20,7 @@ class LocationController extends Controller
     use MediaUploadingTrait, CommonModuleItemTrait;
 
     public function index(Request $request)
-{
+    {   
     $realRoute = explode('.', Route::currentRouteName())[1] ?? null;
     $module = $this->getTheModule($realRoute);
     $permissionrealRoute = str_replace("-", "_", $realRoute);
@@ -80,6 +80,8 @@ class LocationController extends Controller
     $updateRoute = "admin." . $realRoute . ".update";
     $ajaxUpdate = "/admin/update-" . $realRoute . "-status";
     $title = trans('global.location');
+
+    
 
     return view('admin.common.location.index', compact(
         'createRoute',

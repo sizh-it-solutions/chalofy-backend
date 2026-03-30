@@ -972,6 +972,11 @@ class AppUsersController extends Controller
 
         $appUser = AppUser::select('id', 'first_name', 'last_name')->where('id', $userId)->firstOrFail();
         $hostspendmoney = number_format($this->getVendorWalletBalance($userId), 2);
+        \Log::info('Vendor Host Spend Money', [
+            'user_id' => $userId,
+            'hostspendmoney' => $hostspendmoney
+        ]);
+
         $hostpendingmoney = number_format($this->getTotalWithdrawlForVendor($userId, 'Pending'), 2);
         $hostrecivemoney = number_format($this->getTotalWithdrawlForVendor($userId, 'Success'), 2);
         $totalmoney = number_format($this->getTotalEarningsForVendor($userId), 2);

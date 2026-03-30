@@ -19,6 +19,8 @@ class VehiclePricingController extends Controller
    
     public function pricing(Request $request, $id)
     {
+        
+
         $item = Item::findOrFail($id);
 
         $itemMetas = $item->itemMeta->pluck('meta_value', 'meta_key');

@@ -1,0 +1,706 @@
+<?php
+
+namespace App\Http\Controllers\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\UpdateBookingRequest;
+use App\Models\{Booking, User, Module, AppUser, Payout, Wallet, VendorWallet, GeneralSetting, AppUsersBankAccount, AllPackage, BookingExtension};
+use App\Models\Modern\{Item, ItemDate};
+use Gate;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+use App\Http\Controllers\Traits\{ResponseTrait, MediaUploadingTrait, EmailTrait, SMSTrait, PushNotificationTrait, NotificationTrait, UserWalletTrait, VendorWalletTrait};
+use Illuminate\Support\Facades\Cache;
+
+class BookingController extends Controller
+{
+
+    use MediaUploadingTrait, ResponseTrait, EmailTrait, SMSTrait, PushNotificationTrait, NotificationTrait, UserWalletTrait, VendorWalletTrait;
+
+    public function index()
+    {
+        
+        abort_if(Gate::denies('booking_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $item = request()->input('item');
+        $host = request()->input('host');
+        $customer = request()->input('customer');
+        $status = request()->input('status');
+        $module = request()->input('module');
+        $currentModule = app('currentModule');
+        $base = Booking::query()->where('module', $currentModule->id)->whereIn('payment_status', ['paid', 'failed']);
+        //  ->where('payment_status', 'paid');
+
+      
+
+        if ($from || $to) {
+            $fromDate = $from ? "$from 00:00:00" : null;
+            $toDate = $to ? "$to 23:59:59" : null;
+            $base->when($fromDate && $toDate, fn($q) => $q->whereBetween('bookings.created_at', [$fromDate, $toDate]))
+                ->when($fromDate && !$toDate, fn($q) => $q->where('bookings.created_at', '>=', $fromDate))
+                ->when(!$fromDate && $toDate, fn($q) => $q->where('bookings.created_at', '<=', $toDate));
+        }
+
+        $base->when($host, fn($q) => $q->where('host_id', $host))
+            ->when($customer, fn($q) => $q->where('userid', $customer))
+            ->when($item, fn($q) => $q->where('itemid', $item))
+            ->when($module, fn($q) => $q->where('module', $module));
+
+        $statusAggregates = (clone $base)
+            ->withTrashed()
+            ->join('booking_finance AS bf', 'bf.booking_id', 'bookings.id')
+            ->selectRaw("
+        SUM(CASE WHEN bookings.status != 'trash' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS live_count,
+        SUM(CASE WHEN bookings.deleted_at IS NOT NULL THEN 1 ELSE 0 END) AS trash_count,
+        SUM(CASE WHEN bookings.status = 'pending' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS pending_count,
+        SUM(CASE WHEN bookings.status = 'confirmed' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS confirmed_count,
+        SUM(CASE WHEN bookings.status = 'cancelled' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS cancelled_count,
+        SUM(CASE WHEN bookings.status = 'declined' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS declined_count,
+        SUM(CASE WHEN bookings.status = 'completed' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS completed_count,
+        SUM(CASE WHEN bookings.status = 'refunded' AND bookings.deleted_at IS NULL THEN 1 ELSE 0 END) AS refunded_count,
+
+        SUM(CASE WHEN bookings.status IN ('confirmed','completed') AND bookings.deleted_at IS NULL THEN bookings.total ELSE 0 END) AS total_earnings,
+        SUM(CASE WHEN bookings.status = 'cancelled' AND bookings.deleted_at IS NULL THEN bf.refundableAmount ELSE 0 END) AS total_refunded,
+        SUM(CASE WHEN bookings.deleted_at IS NULL THEN bookings.total ELSE 0 END) AS total_sum,
+        COUNT(DISTINCT CASE WHEN bookings.deleted_at IS NULL THEN bookings.userid ELSE NULL END) AS total_customers,
+        SUM(CASE WHEN bookings.deleted_at IS NULL THEN bf.admin_commission ELSE 0 END) AS total_admin_commission,
+        SUM(CASE WHEN bookings.deleted_at IS NULL THEN bf.vendor_commission ELSE 0 END) AS total_vendor_commission
+    ")
+            ->first();
+
+        $statusCounts = [
+            'live' => $statusAggregates->live_count,
+            'trash' => $statusAggregates->trash_count,
+            'pending' => $statusAggregates->pending_count,
+            'confirmed' => $statusAggregates->confirmed_count,
+            'cancelled' => $statusAggregates->cancelled_count,
+            'declined' => $statusAggregates->declined_count,
+            'completed' => $statusAggregates->completed_count,
+            'refunded' => $statusAggregates->refunded_count,
+        ];
+
+        $totalEarnings = $statusAggregates->total_earnings;
+        $totalRefunded = $statusAggregates->total_refunded;
+        $totalSum = $statusAggregates->total_sum;
+        $totalBookings = $statusAggregates->live_count;
+        $totalCustomers = $statusAggregates->total_customers;
+        $totalAdminCommission = $statusAggregates->total_admin_commission;
+        $totalVendorCommission = $statusAggregates->total_vendor_commission;
+          if (\Route::currentRouteName() === 'admin.bookings.trash') {
+            $base->onlyTrashed();
+            $status = null; 
+        } 
+        $bookings = $base
+            ->when($status, fn($q) => $q->where('status', $status))
+            ->with([
+                'host:id,first_name,last_name,user_type',
+                'user:id,first_name,last_name,user_type',
+                'item:id,title',
+                'bookingFinance'
+            ])
+            ->orderByDesc('id')
+            ->paginate(50)
+            ->appends(array_filter([
+                'status' => $status,
+                'to' => $to,
+                'from' => $from,
+                'host' => $host,
+                'customer' => $customer,
+                'item' => $item,
+            ]));
+
+        $hostId = request()->input('host');
+        $customerId = request()->input('customer');
+        $itemId = request()->input('item');
+
+        $users = AppUser::whereIn('id', array_filter([$hostId, $customerId]))->get()->keyBy('id');
+        $item = $itemId ? Item::find($itemId) : null;
+
+        $host = $users->get($hostId);
+        $vendorName = $host ? $host->first_name ." ". $host->last_name: 'All';
+        $vendorId = $host ? $host->id : '';
+
+        $customer = $users->get($customerId);
+        $searchCustomer = $customer ? $customer->first_name : 'All';
+        $searchCustomerId = $customer ? $customer->id : '';
+
+        $searchfieldItem = $item ? $item->title : 'All';
+        $searchfieldItemId = $item ? $item->id : '';
+        return view('admin.bookings.index', compact('bookings', 'totalCustomers', 'totalRefunded', 'totalEarnings', 'totalBookings', 'searchCustomer', 'searchCustomerId', 'totalSum', 'statusCounts', 'searchfieldItem', 'searchfieldItemId', 'vendorName', 'vendorId'));
+    }
+
+
+
+    public function create()
+    {
+        abort_if(Gate::denies('booking_create'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $hosts = User::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
+
+
+        return view('admin.bookings.create', compact('hosts'));
+    }
+
+    public function store(Request $request)
+    {
+
+        $booking = Booking::create($request->all());
+
+        return redirect()->route('admin.bookings.index');
+    }
+
+    public function edit(Booking $booking)
+    {
+        abort_if(Gate::denies('booking_edit'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $hosts = User::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
+
+        $booking->load('host');
+
+        return view('admin.bookings.edit', compact('booking', 'hosts'));
+    }
+
+    public function update(UpdateBookingRequest $request, Booking $booking)
+    {
+        $booking->update($request->all());
+
+        return redirect()->route('admin.bookings.index');
+    }
+
+    public function show(Booking $booking)
+    {
+        abort_if(Gate::denies('booking_show'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        $bookingId = $booking->id;
+        $bookingData = Booking::with(['host:id,first_name,last_name,email,phone,ave_host_rate', 'user:id,first_name,last_name,email,phone,phone_country,avr_guest_rate', 'item:id,title,address'])
+            ->where('id', $bookingId)
+            ->orderBy('id', 'desc')
+            ->first();
+        $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency_symbol')->first();
+        return view('admin.bookings.show', compact('bookingData', 'general_default_currency'));
+    }
+    // customer
+    public function customerItem(Request $request)
+    {
+        $customerName = $request->input('q'); // Retrieve the search term from the request
+
+
+        $items = Item::with('appUser')
+            ->whereHas('appUser', function ($query) use ($customerName) {
+                $query->where('first_name', 'like', '%' . $customerName . '%');
+            })
+            ->distinct()
+            ->get();
+
+        // Prepare the response data
+        $data = [];
+        foreach ($items as $item) {
+            $data[] = [
+                'id' => $item->userid_id,
+                'name' => $item->title,
+                'customer_name' => $item->appUser->first_name,
+            ];
+        }
+
+        return response()->json($data);
+    }
+
+    public function conditioncheck(Request $request, $booking)
+    {
+
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $status = request()->input('status');
+
+        $vendor_wallets = VendorWallet::with('appUser')
+            ->where('vendor_id', $booking)
+            ->orderBy('id', 'desc')
+            ->paginate(50);
+
+
+        $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency')->first();
+
+        $hostspendmoney = number_format($this->getVendorWalletBalance($booking), 2);
+        $hostpendingmoney = number_format($this->getTotalWithdrawlForVendor($booking, 'Pending'), 2);
+        $hostrecivemoney = number_format($this->getTotalWithdrawlForVendor($booking, 'Success'), 2);
+
+        $totalmoney = number_format($this->getTotalEarningsForVendor($booking), 2);
+        $refunded = number_format($this->getTotalRefundForVendor($booking, ''), 2);
+
+        return view('admin.overviewcustomer.index', compact('booking', 'hostspendmoney', 'hostpendingmoney', 'hostrecivemoney', 'totalmoney', 'refunded', 'vendor_wallets', 'general_default_currency'));
+    }
+    public function items(Request $request, $userID)
+    {
+
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $status = request()->input('status');
+        $item_title = request()->input('item_title');
+
+        $query = Item::where('userid_id', $userID)->with(['userid', 'item_Type', 'features', 'place', 'media']);
+
+
+        $isFiltered = ($from || $to || $status || $item_title);
+
+
+        if ($from && $to) {
+            $query->where(function ($query) use ($from, $to) {
+                $query->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+                    ->orWhereBetween('updated_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            });
+        } elseif ($from) {
+            $query->where(function ($query) use ($from) {
+                $query->where('created_at', '>=', $from . ' 00:00:00')
+                    ->orWhere('updated_at', '>=', $from . ' 00:00:00');
+            });
+        } elseif ($to) {
+            $query->where(function ($query) use ($to) {
+                $query->where('created_at', '<=', $to . ' 23:59:59')
+                    ->orWhere('updated_at', '<=', $to . ' 23:59:59');
+            });
+        }
+
+
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+
+
+        if ($item_title) {
+            $query->where('id', $item_title);
+        }
+
+        // Get the items after applying the filters
+        $items = $isFiltered ? $query->paginate(50) : $query->paginate(50);
+
+        $fielddata = request()->input('item_title');
+        $fieldname = Item::find($fielddata);
+        if ($fieldname) {
+            $searchfield = $fieldname->title;
+        } else {
+            $searchfield = 'All';
+        }
+        $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency')->first();
+        $booking = $userID;
+        return view('admin.overviewcustomer.item', compact('booking', 'items', 'searchfield', 'general_default_currency'));
+    }
+
+    
+
+    public function orders(Request $request, $booking)
+    {
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $item = $request->input('item');
+        $status = $request->input('status');
+
+        $query = Booking::with(['host', 'user', 'item'])
+            ->where('host_id', $booking)
+            ->where('payment_status', 'paid')
+            ->orderByRaw("(CASE WHEN check_in >= CURDATE() THEN 0 ELSE 1 END)")
+            ->orderBy('check_in', 'asc');
+
+        if ($from && $to) {
+            $query->whereBetween('check_in', [$from . ' 00:00:00', $to . ' 23:59:59']);
+        } elseif ($from) {
+            $query->where('check_out', '>=', $from . ' 00:00:00');
+        } elseif ($to) {
+            $query->where('check_out', '<=', $to . ' 23:59:59');
+        }
+
+
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+
+
+        if ($item) {
+            $query->where('itemid', $item);
+        }
+
+        $filteredBookingsQuery = clone $query;
+
+        $totalSum = $filteredBookingsQuery->distinct()->sum('total');
+        $totalBookings = $filteredBookingsQuery->distinct()->count('bookings.id');
+
+
+        $filteredBookingsQuery = clone $query;
+        $totalCustomers = $filteredBookingsQuery->distinct('userid')->count('userid');
+
+
+
+        $totalEarningsQuery = clone $query;
+        $totalEarnings = $totalEarningsQuery->whereIn('status', ['Confirmed'])->sum('total');
+
+
+
+        $bookings = $query->paginate(50);
+
+
+        $fielddataitem = $request->input('item');
+        $fieldnameitem = Item::find($fielddataitem);
+        $searchfielditem = $fieldnameitem ? $fieldnameitem->title : 'All';
+        $searchfielditemId = $fieldnameitem ? $fieldnameitem->id : '';
+
+
+        $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency')->first();
+
+        return view('admin.overviewcustomer.orders', compact('booking', 'bookings', 'searchfielditem', 'searchfielditemId', 'general_default_currency', 'totalSum', 'totalBookings', 'totalCustomers', 'totalEarnings'));
+    }
+
+
+
+    public function bookings(Request $request, $booking)
+    {
+
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $item = request()->input('item');
+        $customer = request()->input('customer');
+        $status = request()->input('status');
+
+
+        $query = Booking::with(['item', 'host', 'user'])
+            ->where('userid', $booking)
+            ->where('payment_status', 'paid');
+        // Apply filters
+        if ($from && $to) {
+            $query->whereBetween('updated_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+        } elseif ($from) {
+            $query->where('updated_at', '>=', $from . ' 00:00:00');
+        } elseif ($to) {
+            $query->where('updated_at', '<=', $to . ' 23:59:59');
+        }
+
+        if ($status == 'pending') {
+            $query->where('status', 'pending');
+        }
+        if ($status == 'confirmed') {
+            $query->where('status', 'confirmed');
+        }
+        if ($status == 'cancelled') {
+            $query->where('status', 'cancelled');
+        }
+        if ($status == 'declined') {
+            $query->where('status', 'declined');
+        }
+        if ($status == 'completed') {
+            $query->where('status', 'completed');
+        }
+        if ($status == 'refunded') {
+            $query->where('status', 'refunded');
+        }
+        if ($customer) {
+            $query->where('userid', $customer);
+        }
+        if ($item) {
+            $query->where('itemid', $item);
+        }
+
+        // Use DISTINCT to ensure unique records
+        //$query->distinct();
+        $filteredBookingsQuery = clone $query;
+
+        $totalSum = $filteredBookingsQuery->distinct()->sum('total');
+        $totalBookings = $filteredBookingsQuery->distinct()->count('bookings.id');
+
+        $filteredBookingsQuery = clone $query;
+        $totalCustomers = $filteredBookingsQuery->distinct('userid')->count('userid');
+
+
+
+        $totalEarningsQuery = clone $query;
+        $totalEarnings = $totalEarningsQuery->sum('total');
+
+        // Use paginate to fetch records in sets of 50 per page
+        $bookings = $query->paginate(50);
+
+        // select2 case data
+
+        $fielddata = request()->input('customer');
+        $fieldname = AppUser::find($fielddata);
+        $searchfield = $fieldname ? $fieldname->first_name : 'All';
+
+        $fielddataItem = request()->input('item');
+        $fieldnameItem = Item::find($fielddataItem);
+        $searchfieldItem = $fieldnameItem ? $fieldnameItem->title : 'All';
+
+        $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency')->first();
+
+        return view('admin.overviewcustomer.bookings', compact('booking', 'totalEarnings', 'bookings', 'totalCustomers', 'totalBookings', 'totalSum', 'searchfieldItem', 'searchfield', 'general_default_currency'));
+    }
+    public function payouts(Request $request, $booking)
+    {
+
+        abort_if(Gate::denies('payout_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $status = request()->input('status');
+
+        $query = Payout::with('vendor')
+            ->where('vendorid', $booking);
+
+        // Check if any search parameter is provided
+        $isFiltered = ($from || $to || $status);
+        if ($from && $to) {
+            $query->where(function ($query) use ($from, $to) {
+                $query->whereBetween('payouts.created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+                    ->orWhereBetween('payouts.updated_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            });
+        } elseif ($from) {
+            $query->where(function ($query) use ($from) {
+                $query->where('payouts.created_at', '>=', $from . ' 00:00:00')
+                    ->orWhere('payouts.updated_at', '>=', $from . ' 00:00:00');
+            });
+        } elseif ($to) {
+            $query->where(function ($query) use ($to) {
+                $query->where('payouts.created_at', '<=', $to . ' 23:59:59')
+                    ->orWhere('payouts.updated_at', '<=', $to . ' 23:59:59');
+            });
+        }
+
+        // Apply the status filter if 'status' is provided
+        if ($status !== null) {
+            $query->where('payout_status', $status);
+        }
+
+        $payouts = $isFiltered ? $query->paginate(50) : $query->paginate(50);
+
+        return view('admin.overviewcustomer.payouts', compact('payouts', 'booking'));
+    }
+    //Bank Account
+    public function bankAccount(Request $request, $booking)
+    {
+
+        abort_if(Gate::denies('payout_access'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $status = $request->input('status');
+
+        // Query to fetch bank account details from 'app_users_bank_accounts'
+        $accounts = AppUsersBankAccount::with('user')->where('user_id', $booking)->get();
+
+        return view('admin.overviewcustomer.bank', compact('accounts', 'booking'));
+    }
+
+    public function walletbkp(Request $request, $booking)
+    {
+        $from = request()->input('from');
+        $to = request()->input('to');
+        $status = request()->input('status');
+
+        $query = Wallet::where('user_id', $booking)->join('app_users', 'wallets.user_id', '=', 'app_users.id')->select('wallets.*', 'app_users.first_name', 'app_users.last_name');
+
+        $isFiltered = ($from || $to || $status);
+        if ($from && $to) {
+            $query->where(function ($query) use ($from, $to) {
+                $query->whereBetween('wallets.created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+                    ->orWhereBetween('wallets.updated_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            });
+        } elseif ($from) {
+            $query->where(function ($query) use ($from) {
+                $query->where('wallets.created_at', '>=', $from . ' 00:00:00')
+                    ->orWhere('wallets.updated_at', '>=', $from . ' 00:00:00');
+            });
+        } elseif ($to) {
+            $query->where(function ($query) use ($to) {
+                $query->where('wallets.created_at', '<=', $to . ' 23:59:59')
+                    ->orWhere('wallets.updated_at', '<=', $to . ' 23:59:59');
+            });
+        }
+        if ($status !== null) {
+            $query->where('wallets.status', $status);
+        }
+
+        $wallets = $isFiltered ? $query->paginate(50) : $query->paginate(50);
+
+        return view('admin.overviewcustomer.wallet', compact('wallets', 'booking'));
+    }
+
+    public function wallet(Request $request, $booking)
+    {
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $status = $request->input('status');
+
+        // Start the query with Eloquent
+        $query = Wallet::where('user_id', $booking)->with('appUser'); // 'user' is the relationship method in Wallet model
+
+        // Check if any filters are applied
+        if ($from && $to) {
+            $query->where(function ($query) use ($from, $to) {
+                $query->whereBetween('created_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+                    ->orWhereBetween('updated_at', [$from . ' 00:00:00', $to . ' 23:59:59']);
+            });
+        } elseif ($from) {
+            $query->where(function ($query) use ($from) {
+                $query->where('created_at', '>=', $from . ' 00:00:00')
+                    ->orWhere('updated_at', '>=', $from . ' 00:00:00');
+            });
+        } elseif ($to) {
+            $query->where(function ($query) use ($to) {
+                $query->where('created_at', '<=', $to . ' 23:59:59')
+                    ->orWhere('updated_at', '<=', $to . ' 23:59:59');
+            });
+        }
+
+        // Apply status filter
+        if ($status !== null) {
+            $query->where('status', $status);
+        }
+
+        // Paginate results
+        $wallets = $query->paginate(50);
+
+        return view('admin.overviewcustomer.wallet', compact('wallets', 'booking'));
+    }
+
+
+    public function updateStatus(Request $request)
+    {
+
+        $product_status = Wallet::where('id', $request->pid)->update(['status' => $request->status,]);
+        if ($product_status) {
+            return response()->json([
+                'ststus' => 200,
+                'message' => trans('global.status_updated_successfully')
+            ]);
+        } else {
+            return response()->json([
+                'ststus' => 500,
+                'message' => 'something went wrong. Please try again.'
+            ]);
+        }
+    }
+
+    public function destroy($id)
+    {
+        
+         
+
+        abort_if(Gate::denies('booking_delete'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+        $currentModule = Module::where('default_module', '1')->first();
+
+        $booking = Booking::findOrFail($id);
+
+        if ($booking->module == $currentModule->id) {
+            $booking->delete();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Booking deleted successfully'
+            ]);
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Forbidden: Booking cannot be deleted from this module'
+            ], Response::HTTP_FORBIDDEN);
+        }
+    }
+
+
+
+
+    public function restoreTrash($id)
+    {
+        $item = Booking::onlyTrashed()->findOrFail($id);
+        $item->restore();
+        return;
+    }
+
+
+    public function permanentDelete(Request $request, $id)
+    {
+       
+        
+        abort_if(Gate::denies('booking_delete'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+
+
+        $currentModule = Module::where('default_module', '1')->first();
+
+        $booking = Booking::withTrashed()->findOrFail($id);
+
+        
+        if ($booking->module == $currentModule->id) {
+
+            ItemDate::where('booking_id', $booking->id)->forceDelete();
+
+            if ($booking->extension) {
+                $booking->extension->delete();
+            }
+
+            $booking->forceDelete();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Booking permanently deleted successfully'
+            ]);
+        } else {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Forbidden: Booking cannot be deleted from this module'
+            ], Response::HTTP_FORBIDDEN);
+        }
+    }
+
+
+
+
+    public function bookingDeleteAll(Request $request)
+    {
+        
+       
+        abort_if(Gate::denies('booking_delete'), Response::HTTP_FORBIDDEN, '403 Forbidden');
+        $ids = $request->input('ids');
+        if (!empty($ids)) {
+            try {
+
+                Booking::whereIn('id', $ids)->delete();
+                return response()->json(['message' => 'Items deleted successfully'], 200);
+            } catch (\Exception $e) {
+                return response()->json(['message' => 'Something went wrong'], 500);
+            }
+        }
+
+        return response()->json(['message' => 'No entries selected'], 400);
+    }
+
+
+
+    public function bookngTrashAll(Request $request)
+    {
+        $ids = $request->input('ids');
+
+        if (!empty($ids)) {
+            try {
+                foreach ($ids as $bookingId) {
+                    ItemDate::where('booking_id', $bookingId)->delete();
+
+                    $extension = BookingExtension::where('booking_id', $bookingId)->first();
+                    if ($extension) {
+                        $extension->delete();
+                    }
+                }
+
+                Booking::onlyTrashed()->whereIn('id', $ids)->forceDelete();
+
+                return response()->json([
+                    'status' => 'success',
+                    'message' => 'Items deleted from trash successfully'
+                ], 200);
+            } catch (\Exception $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Something went wrong: ' . $e->getMessage()
+                ], 500);
+            }
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'No entries selected'
+        ], 400);
+    }
+}

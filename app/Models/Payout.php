@@ -39,6 +39,7 @@ class Payout extends Model implements HasMedia
         'payment_method',
         'account_number',
         'payout_status',
+        'request_by',
         'module',
         'created_at',
         'updated_at',

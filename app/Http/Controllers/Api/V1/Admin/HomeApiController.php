@@ -115,6 +115,7 @@ class HomeApiController extends Controller
             ]);
 
         } catch (\Exception $e) {
+
             return $this->addErrorResponse(500,trans('front.something_wrong'), $e->getMessage());
         }
     }

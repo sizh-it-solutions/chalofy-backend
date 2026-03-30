@@ -134,6 +134,15 @@ public function calendarMonth(Request $request, $id)
         $bookingData[$date->format('Y-m-d')] = $price->booking_id;
         $minStayData[$date->format('Y-m-d')] = $price->min_stay;
     }
+
+    \Log::info('Price calendar data', [
+    'priceData'   => $priceData,
+    'dateData'    => $dateData,
+    'statusData'  => $StatusData,
+    'bookingData' => $bookingData,
+    'minStayData' => $minStayData,
+]);
+
         $general_default_currency = GeneralSetting::where('meta_key', 'general_default_currency')->first();
         $routeIndex = 'admin.'.$slug.'.calendar.index';
         $routeUpdate = 'admin.'.$slug.'.Calendar-Update';

@@ -51,6 +51,13 @@ trait VendorWalletTrait
         $totalRefunds = VendorWallet::where('vendor_id', $vendorId)
             ->where('type', 'refund')
             ->sum('amount');
+
+        \Log::info('Vendor Wallet Summary', [
+            'vendor_id' => $vendorId,
+            'total_credits' => $totalCredits,
+            'total_debits' => $totalDebits,
+            'total_refunds' => $totalRefunds
+        ]);
         return $balance = $totalCredits - ($totalDebits + $totalRefunds);
     }
 

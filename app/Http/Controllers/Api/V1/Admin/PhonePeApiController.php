@@ -1,0 +1,169 @@
+<?php
+
+namespace App\Http\Controllers\Api\V1\Admin;
+
+use App\Http\Controllers\Controller;
+use App\Strategies\{PhonePeStrategy};
+use App\Http\Controllers\Traits\BookingAvailableTrait;
+use App\Http\Controllers\Traits\MediaUploadingTrait;
+use App\Http\Controllers\Traits\MiscellaneousTrait;
+use App\Http\Controllers\Traits\PaymentStatusUpdaterTrait;
+use App\Http\Controllers\Traits\ResponseTrait;
+use App\Http\Controllers\Traits\UserWalletTrait;
+use App\Http\Controllers\Traits\VendorWalletTrait;
+use App\Models\AppUser;
+use App\Models\Booking;
+use App\Models\BookingCancellationReason;
+use App\Models\Modern\Currency;
+use App\Models\Modern\Item;
+use Carbon\Carbon;
+use DateTime;
+use DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
+
+
+
+class PhonePeApiController extends Controller
+{
+
+    use BookingAvailableTrait, MediaUploadingTrait, MiscellaneousTrait, PaymentStatusUpdaterTrait, ResponseTrait, UserWalletTrait;
+
+
+    //  public function __construct()
+    // {
+    //     $phonepe_options =  $this->getGeneralSettingValue('phonepe_options');
+
+    //     if($phonepe_options == 'test')
+    //     {
+    //     $test_client_id = $this->getGeneralSettingValue('test_phonepe_clientId');
+    //     $test_client_secret = $this->getGeneralSettingValue('test_phonepe_clientSecret');
+    //     $isProduction = false;
+    //     }
+    //     else
+    //     {
+    //     $live_client_id = $this->getGeneralSettingValue('live_phonepe_clientId');
+    //     $live_client_secret = $this->getGeneralSettingValue('live_phonepe_clientSecret');
+    //     $isProduction = true;
+    //     }
+
+     
+        
+        
+    // }
+
+    
+
+    private function getAccessToken()
+    {
+        $isProduction = true;
+       // $isProduction = false;
+
+        $url = $isProduction
+            ? 'https://api.phonepe.com/apis/identity-manager/v1/oauth/token'
+            : 'https://api-preprod.phonepe.com/apis/pg-sandbox/v1/oauth/token';
+
+        $headers = [
+            'Content-Type' => 'application/x-www-form-urlencoded',
+        ];
+
+        $formBody = http_build_query([
+            'grant_type' => 'client_credentials',
+            'client_id' => 'SU2509271650377511604292',
+            'client_secret' => '649dd11d-a394-40fd-989b-44811391d5e7',
+            'client_version' => 1,
+        ]);
+
+
+        $response = Http::withHeaders($headers)->send('POST', $url, [
+            'body' => $formBody,
+        ]);
+
+
+        $responseData = $response->json();
+        return $responseData['access_token'] ?? null;
+    }
+
+
+    public function createOrder(Request $request)
+    {
+       
+
+        $accessToken = $this->getAccessToken();
+
+        if (!$accessToken) {
+            Log::error('Failed to get PhonePe access token');
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to get PhonePe access token'
+            ], 500);
+        }
+
+        $request->validate([
+            'merchantOrderId' => 'required|string|max:63',
+            'amount' => 'required|min:1',
+        ]);
+
+        $merchantOrderId = $request->merchantOrderId;
+        $amount = str_replace(',', '', $request->amount);
+        $amount = floatval($amount);
+
+        $payload = [
+            "merchantOrderId" => 'ORDER_' . $merchantOrderId,
+            "amount" => intval($amount * 100),
+            "expireAfter" => $request->expireAfter ?? 1200,
+            "metaInfo" => $request->metaInfo ?? [],
+            "paymentFlow" => [
+                "type" => "PG_CHECKOUT"
+            ]
+        ];
+
+        $isProduction = true;
+
+        //$isProduction = false;
+
+        $url = $isProduction
+            ? 'https://api.phonepe.com/apis/pg/checkout/v2/sdk/order'
+            : 'https://api-preprod.phonepe.com/apis/pg-sandbox/checkout/v2/sdk/order';
+
+        // Log payload and URL
+
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: O-Bearer ' . $accessToken
+        ]);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+
+        if ($httpCode !== 200) {
+            Log::error('Failed to create PhonePe order', [
+                'http_code' => $httpCode,
+                'response' => $response
+            ]);
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to create order token',
+                'response' => json_decode($response, true)
+            ], $httpCode);
+        }
+
+
+        return $this->addSuccessResponse(200, trans('global.created_order_succesfully'), $response);
+    }
+
+
+
+
+
+
+}

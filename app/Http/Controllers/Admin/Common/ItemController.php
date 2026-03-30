@@ -164,8 +164,12 @@ class ItemController extends Controller
         $item_types = ItemType::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
         $features = ItemFeatures::pluck('name', 'id')->prepend(trans('global.pleaseSelect'), '');
         $places = City::where('module', $module)->where('status', '1')->pluck('city_name', 'id')->prepend(trans('global.pleaseSelect'), '');
-// $supportedLocales = ['en' => 'English', 'fr' => 'French', 'ar' => 'Arabic'];
-$supportedLocales = ['en' => 'English'];
+
+        $supportedLocales = ['en' => 'English'];
+
+      
+
+         
         return view('admin.common.create', compact('title', 'realRoute', 'features', 'places', 'item_types', 'userids', 'module','supportedLocales'));
     }
 

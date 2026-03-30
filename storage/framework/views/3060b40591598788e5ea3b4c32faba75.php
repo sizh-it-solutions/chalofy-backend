@@ -1,1 +1,0 @@
-<?php /**PATH /home/u946908376/domains/admin.chalofyrentals.in/public_html/resources/views/admin/demo/whatsapp-chat.blade.php ENDPATH**/ ?>
